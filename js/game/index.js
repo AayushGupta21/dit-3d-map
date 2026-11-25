@@ -1,4 +1,6 @@
-// Multiplayer game (2–4 players) on the DIT campus, peer-to-peer over WebRTC (PeerJS).
+// Multiplayer game (2–4 players) on the DIT campus. Players connect directly over WebRTC (PeerJS)
+// when their networks allow it, and through a Supabase Realtime relay when they don't (mobile data,
+// strict wifi). Each connection is a "link" with send(); the game doesn't care which kind it is.
 //
 // The player who creates the room is the host. The host owns health, scores, timers, flags and
 // roles, checks every hit (with lag compensation) and relays positions at 20 Hz. Clients draw other
@@ -11,6 +13,7 @@ import { createFX } from "./fx.js";
 import { WEAPONS, falloff, createViewModel } from "./weapons.js";
 import { makeAvatar } from "./avatar.js";
 import { createHUD, createMinimap, COLORS, TEAM_COLORS } from "./hud.js";
+import { createRelay, relayConfigured } from "./relay.js";
 
 const MODES = {
   dm: { name: "Shootout", team: false, time: 300e3, target: 10,
@@ -158,8 +161,9 @@ export function createGame(ctx) {
   }
 
   // ---------- state ----------
-  let peer = null, conn = null, isHost = false, myId = null, code = null, active = false;
-  const conns = new Map();
+  let peer = null, isHost = false, myId = null, code = null, active = false;
+  let relay = null, hostLink = null, lastHeard = 0;
+  const conns = new Map();   // host: player id -> link ({ kind, open, send, close })
   let G = null, endLocal = 0, lastPhase = null, offset = 0, offsetSamples = [];
   const buf = new Map();      // id -> [{T, s:[x, y, jy, yaw, pitch, flags]}]
   const avatars = new Map();
@@ -208,7 +212,18 @@ export function createGame(ctx) {
   }
   function toHost(msg) {
     if (isHost) hostHandle(myId, msg);
-    else if (conn && conn.open) { try { conn.send(msg); } catch { /* closing */ } }
+    else if (hostLink && hostLink.open) { try { hostLink.send(msg); } catch { /* closing */ } }
+  }
+  const relayName = (who) => `dit3d-${code.toLowerCase()}-${who}`;
+  function p2pLink(c) {
+    return { kind: "p2p", get open() { return c.open; }, send: (m) => c.send(m), close: () => { try { c.close(); } catch { /* closed */ } } };
+  }
+  /** Host side: a link to a player who reached us through the relay. */
+  function relayLinkTo(id) {
+    const name = relayName(id), queue = [];
+    let fn = null;
+    relay.to(name).then((f) => { fn = f; queue.splice(0).forEach((m) => f(m)); }).catch(() => {});
+    return { kind: "relay", open: true, last: now(), send(m) { if (fn) fn(m); else queue.push(m); }, close() { this.open = false; relay.drop(name); } };
   }
 
   // ================= HOST =================
@@ -216,14 +231,14 @@ export function createGame(ctx) {
     const used = new Set(Object.values(H.players).map((p) => p.slot));
     let slot = 0; while (used.has(slot)) slot++;
     const reds = Object.values(H.players).filter((p) => p.team === "r").length, blues = Object.values(H.players).length - reds;
-    H.players[id] = { name: clean(name) || DEFAULT_NAMES[slot], slot, team: reds <= blues ? "r" : "b", hp: 100, score: 0, kills: 0, deaths: 0,
+    H.players[id] = { name: clean(name) || DEFAULT_NAMES[slot], slot, net: id === myId ? "host" : (conns.get(id) || {}).kind || "p2p", team: reds <= blues ? "r" : "b", hp: 100, score: 0, kills: 0, deaths: 0,
       role: H.mode === "hs" && H.phase !== "lobby" ? "seeker" : "", alive: true, prot: 0, carry: null, lastShot: 0, tauntT: 0 };
   }
   function pushG() {
     const t = now();
     const players = {};
     for (const [id, p] of Object.entries(H.players)) {
-      players[id] = { name: p.name, slot: p.slot, team: p.team, hp: Math.round(p.hp), score: p.score, kills: p.kills, deaths: p.deaths,
+      players[id] = { name: p.name, slot: p.slot, net: p.net, team: p.team, hp: Math.round(p.hp), score: p.score, kills: p.kills, deaths: p.deaths,
         role: p.role, alive: p.alive, prot: p.prot > t, carry: p.carry };
     }
     const flags = H.flags ? { r: { ...H.flags.r }, b: { ...H.flags.b } } : null;
@@ -246,7 +261,7 @@ export function createGame(ctx) {
   function hostHandle(id, m) {
     if (m.t === "hello") {
       if (!H.players[id]) {
-        if (Object.keys(H.players).length >= MAX_PLAYERS) { const c = conns.get(id); if (c) { c.send({ t: "full" }); setTimeout(() => c.close(), 300); } return; }
+        if (Object.keys(H.players).length >= MAX_PLAYERS) { const c = conns.get(id); if (c) { c.send({ t: "full" }); setTimeout(() => { c.close(); conns.delete(id); }, 300); } return; }
         addPlayer(id, m.name);
         feed(`${H.players[id].name} joined`);
       }
@@ -423,7 +438,15 @@ export function createGame(ctx) {
     const p = [];
     for (const [id, P] of Object.entries(H.players)) { const s = latest(id); if (s) p.push([P.slot, ...s.map(r2)]); }
     const snap = { t: "s", T: Math.round(t), p };
-    for (const c of conns.values()) if (c.open) { try { c.send(snap); } catch { /* closing */ } }
+    const odd = hostTick.n % 2 === 1;
+    for (const [id, c] of conns) {
+      if (!c.open) continue;
+      if (c.kind === "relay") {
+        if (t - c.last > 12000) { hostDrop(id); continue; } // their tab closed or lost signal
+        if (odd) continue; // relay players get 10 Hz snapshots
+      }
+      try { c.send(snap); } catch { /* closing */ }
+    }
     if (++hostTick.n % 40 === 0 && H.phase !== "lobby") pushG();
   }
   hostTick.n = 0;
@@ -458,6 +481,8 @@ export function createGame(ctx) {
     if (changed || hostTick.n % 10 === 0) pushG();
   }
   function hostDrop(id) {
+    const link = conns.get(id);
+    if (link && link.kind === "relay") link.close();
     conns.delete(id); buf.delete(id);
     const P = H.players[id];
     if (!P) return;
@@ -532,6 +557,7 @@ export function createGame(ctx) {
         break;
       }
       case "full": toast("That room is full (4 players max)."); leave(); break;
+      case "who": if (!isHost && hostLink) hostLink.send({ t: "hello", name: clean($("gmName").value) }); break;
     }
   }
   function onHit(m) {
@@ -817,7 +843,7 @@ export function createGame(ctx) {
 
     // send own state (20 Hz)
     sendT += dt;
-    if (sendT >= TICK / 1000) {
+    if (sendT >= (hostLink && hostLink.kind === "relay" ? 2 * TICK : TICK) / 1000) {
       sendT = 0;
       const fl = (walk.crouch ? 1 : 0) | (L.ads ? 2 : 0) | (walk.running ? 4 : 0) | (L.w << 4);
       const s = [r2(p[0]), r2(p[1]), r2(walk.jy), Math.round(yaw * 1000) / 1000, Math.round(pitch * 1000) / 1000, fl];
@@ -937,61 +963,150 @@ export function createGame(ctx) {
   function status(text) { $("gmStatus").textContent = text; }
   function newCode() { const A = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; return Array.from({ length: 5 }, () => A[Math.floor(Math.random() * A.length)]).join(""); }
   async function getPeerLib() {
-    status("Connecting…");
-    try { await loadScript(PEERJS); } catch { status("Couldn't load the multiplayer library. Check your internet connection."); throw new Error("peerjs"); }
+    try { await loadScript(PEERJS); return true; } catch { return false; }
   }
+  function keepPeerAlive(p) {
+    // phones pause background tabs (e.g. while sharing the link on WhatsApp); re-register when back
+    p.on("disconnected", () => { setTimeout(() => { if (peer === p && !p.destroyed && p.disconnected) { try { p.reconnect(); } catch { /* gone */ } } }, 1000); });
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && peer && !peer.destroyed && peer.disconnected) { try { peer.reconnect(); } catch { /* gone */ } }
+  });
   function storeName(n) { try { localStorage.setItem("dit-mpname", JSON.stringify(n)); } catch { /* private mode */ } }
+
   async function create() {
     const name = clean($("gmName").value); storeName(name);
     audio.resume();
-    await getPeerLib();
+    status("Creating a room…");
+    const hasPeer = await getPeerLib();
     code = newCode();
-    peer = new window.Peer(ROOM_PREFIX + code.toLowerCase());
-    peer.on("open", (id) => {
-      myId = id; isHost = true;
-      H = { mode: "dm", phase: "lobby", end: 0, players: {}, msg: "", ts: { r: 0, b: 0 }, flags: null };
-      addPlayer(myId, name);
-      begin();
-      pushG();
-    });
-    peer.on("connection", (c) => {
-      c.on("open", () => conns.set(c.peer, c));
-      c.on("data", (m) => { if (m && typeof m === "object") hostHandle(c.peer, m); });
-      c.on("close", () => hostDrop(c.peer));
-      c.on("error", () => hostDrop(c.peer));
-    });
-    peer.on("error", (e) => {
-      if (e.type === "unavailable-id" && !active) { peer.destroy(); create(); return; }
-      if (!active) status("Couldn't create a room: " + (e.type || e.message));
-    });
+    // 1) direct connections (PeerJS). If this fails the relay still works.
+    let peerId = null;
+    if (hasPeer) {
+      peerId = await new Promise((res) => {
+        const p = new window.Peer(ROOM_PREFIX + code.toLowerCase());
+        peer = p;
+        const to = setTimeout(() => res(null), 7000);
+        p.on("open", (id) => { clearTimeout(to); res(id); });
+        p.on("error", (e) => { if (!active) { clearTimeout(to); res(e.type === "unavailable-id" ? "retry" : null); } });
+        p.on("connection", (c) => {
+          c.on("open", () => {
+            const old = conns.get(c.peer);
+            if (old && old.kind === "relay") { c.close(); return; } // already playing through the relay
+            conns.set(c.peer, p2pLink(c));
+          });
+          c.on("data", (m) => { if (m && typeof m === "object") hostHandle(c.peer, m); });
+          c.on("close", () => { if (conns.get(c.peer)?.kind === "p2p") hostDrop(c.peer); });
+          c.on("error", () => { if (conns.get(c.peer)?.kind === "p2p") hostDrop(c.peer); });
+        });
+        keepPeerAlive(p);
+      });
+      if (peerId === "retry") { try { peer.destroy(); } catch { /* */ } peer = null; return create(); }
+    }
+    // 2) relay inbox, so friends on mobile data / strict wifi can still join
+    if (relayConfigured()) {
+      try {
+        relay = await createRelay();
+        await relay.listen(relayName("h"), ({ from, m }) => {
+          if (!from || !m || !H) return;
+          let link = conns.get(from);
+          if (!link) {
+            if (m.t !== "hello") { relay.to(relayName(from)).then((f) => f({ t: "who" })).catch(() => {}); return; }
+            link = relayLinkTo(from); conns.set(from, link);
+          }
+          if (link.kind !== "relay") return; // they also have a direct link
+          link.last = now();
+          hostHandle(from, m);
+        });
+      } catch { relay = null; }
+    }
+    if (!peerId && !relay) { status("Couldn't create a room. Check your internet connection and try again."); return; }
+    myId = peerId || "h-" + code.toLowerCase();
+    isHost = true;
+    H = { mode: "dm", phase: "lobby", end: 0, players: {}, msg: "", ts: { r: 0, b: 0 }, flags: null };
+    addPlayer(myId, name);
+    begin();
+    pushG();
   }
+
   async function join() {
     const name = clean($("gmName").value);
     const c = $("gmCode").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (c.length !== 5) { status("Room codes have 5 letters."); return; }
     storeName(name);
     audio.resume();
-    await getPeerLib();
     code = c;
-    peer = new window.Peer();
-    peer.on("open", (id) => {
-      myId = id; isHost = false;
-      conn = peer.connect(ROOM_PREFIX + code.toLowerCase(), { reliable: true });
-      const to = setTimeout(() => { if (!active) status("No answer from that room. Check the code, or ask the host to keep their tab open."); }, 12000);
-      conn.on("open", () => {
-        clearTimeout(to);
-        conn.send({ t: "hello", name });
-        begin();
-        const ping = () => { if (conn && conn.open) conn.send({ t: "pi", c: now() }); };
-        ping(); setTimeout(ping, 300); setTimeout(ping, 800);
-        timers.push(setInterval(ping, 2000));
+    status("Connecting…");
+    const hasPeer = await getPeerLib();
+    // "?relay" in the URL skips the direct attempt (for testing the relay path)
+    const forceRelay = new URLSearchParams(location.search).has("relay");
+    let link = hasPeer && !forceRelay ? await tryDirect(name) : null;
+    if (!link && relayConfigured()) {
+      status("Your network blocks direct connections. Joining through the relay…");
+      link = await tryRelay(name);
+    }
+    if (!link) {
+      status("Couldn't reach that room. Check the code, and ask the host to keep the game open on their screen.");
+      try { peer && peer.destroy(); } catch { /* */ } peer = null;
+      if (relay) { relay.close(); relay = null; }
+      return;
+    }
+    hostLink = link;
+    lastHeard = now();
+    begin();
+    const ping = () => toHost({ t: "pi", c: now() });
+    ping(); setTimeout(ping, 300); setTimeout(ping, 800);
+    timers.push(setInterval(ping, 2000));
+    // the relay has no "closed" event: if the host goes quiet for long, the room is gone
+    timers.push(setInterval(() => {
+      if (active && hostLink && hostLink.kind === "relay" && now() - lastHeard > 15000) { toast("Lost the host. The room may have closed."); leave(); }
+    }, 3000));
+  }
+  /** Direct WebRTC link to the host, or null if it doesn't open in time. */
+  function tryDirect(name) {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (v) => { if (!done) { done = true; resolve(v); } };
+      const p = new window.Peer();
+      peer = p;
+      keepPeerAlive(p);
+      const to = setTimeout(() => finish(null), 8000);
+      p.on("open", (id) => {
+        myId = id;
+        const c = p.connect(ROOM_PREFIX + code.toLowerCase(), { reliable: true });
+        c.on("open", () => {
+          if (done) { c.close(); return; }
+          clearTimeout(to);
+          c.send({ t: "hello", name });
+          finish(p2pLink(c));
+        });
+        c.on("data", (m) => { if (m && typeof m === "object" && hostLink && hostLink.kind === "p2p") { lastHeard = now(); onNet(m); } });
+        c.on("close", () => { if (active && hostLink && hostLink.kind === "p2p") { toast("The host left, so the game ended."); leave(); } });
       });
-      conn.on("data", (m) => { if (m && typeof m === "object") onNet(m); });
-      conn.on("close", () => { if (active) { toast("The host left, so the game ended."); leave(); } });
+      p.on("error", (e) => { if (!done && (e.type === "peer-unavailable" || e.type === "network" || e.type === "server-error" || e.type === "socket-error")) { clearTimeout(to); finish(null); } });
     });
-    peer.on("error", (e) => {
-      if (!active) status(e.type === "peer-unavailable" ? "No room with that code. Check it and try again." : "Connection problem: " + (e.type || e.message));
-    });
+  }
+  /** Relay link to the host: listen on our inbox, write to the host's inbox. */
+  async function tryRelay(name) {
+    try {
+      relay = relay || await createRelay();
+      myId = myId || "c-" + Math.random().toString(36).slice(2, 10);
+      let gotState = null;
+      const firstState = new Promise((r) => (gotState = r));
+      await relay.listen(relayName(myId), (m) => {
+        if (hostLink && hostLink.kind !== "relay") return;
+        lastHeard = now();
+        if (m.t === "g") gotState();
+        onNet(m);
+      });
+      const send = await relay.to(relayName("h"));
+      const link = { kind: "relay", open: true, send: (m) => send({ from: myId, m }), close() { this.open = false; } };
+      hostLink = link; // so the first replies are accepted
+      link.send({ t: "hello", name });
+      const ok = await Promise.race([firstState.then(() => true), new Promise((r) => setTimeout(() => r(false), 9000))]);
+      if (!ok) { hostLink = null; return null; }
+      return link;
+    } catch { hostLink = null; return null; }
   }
   function begin() {
     active = true;
@@ -1024,7 +1139,9 @@ export function createGame(ctx) {
     for (const tm of timers) clearInterval(tm);
     timers = [];
     try { peer && peer.destroy(); } catch { /* already closed */ }
-    peer = null; conn = null; conns.clear(); buf.clear(); G = null; H = null; lastPhase = null; offsetSamples = [];
+    for (const c of conns.values()) { try { c.close(); } catch { /* closed */ } }
+    if (relay) { relay.close(); relay = null; }
+    peer = null; hostLink = null; myId = null; conns.clear(); buf.clear(); G = null; H = null; lastPhase = null; offsetSamples = [];
     for (const a of avatars.values()) { scene.remove(a.g); a.dispose(); }
     avatars.clear();
     for (const fm of Object.values(flagMeshes)) if (fm.parent) fm.parent.remove(fm);
@@ -1064,6 +1181,9 @@ export function createGame(ctx) {
   });
   $("gmCopy").onclick = async () => {
     const link = `${location.origin}${location.pathname}?room=${code}`;
+    if (isTouch && navigator.share) {
+      try { await navigator.share({ title: "DIT 3D: join my game", text: `Join my game on the DIT campus map. Room ${code}`, url: link }); return; } catch { /* cancelled */ }
+    }
     try { await navigator.clipboard.writeText(link); toast("Invite link copied. Send it to your friends!"); } catch { toast(link); }
   };
   $("gmSetBtn").onclick = () => {
@@ -1077,7 +1197,7 @@ export function createGame(ctx) {
   return {
     open, leave, update,
     get active() { return active; },
-    debug: () => ({ G, myId, isHost, code, L, offset, buf: [...buf.keys()], avatars: avatars.size,
+    debug: () => ({ G, myId, isHost, code, L, offset, net: hostLink ? hostLink.kind : isHost ? [...conns].map(([i, c]) => i.slice(0, 6) + ":" + c.kind) : null, buf: [...buf.keys()], avatars: avatars.size,
       av: [...avatars].map(([id, a]) => ({ id, x: a.g.position.x, y: -a.g.position.z, vis: a.g.visible })) }),
   };
 }

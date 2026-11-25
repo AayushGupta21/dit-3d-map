@@ -77,7 +77,7 @@ Run `npm run build` again after any change to `js/`, `css/` or `data/`.
   - `avatar.js`: animated players.
   - `hud.js`: UI and minimap.
 - **Loading:** all of it is loaded only when someone presses Play, about 29 KB gzipped.
-- **Networking:** the browsers connect directly over WebRTC (PeerJS). The free PeerJS server only introduces them, so no game server is needed.
+- **Networking:** each guest first tries a direct WebRTC connection to the host (PeerJS). If their network blocks that (common on mobile data and college wifi), the game switches that guest to a relay through Supabase Realtime within a few seconds. The lobby shows "via relay" for those players. Set `SUPABASE_URL` and `SUPABASE_KEY` (the project's publishable key) in `config.js`. Add `?relay` to the URL to test the relay path.
 - **Host authority:** the room creator's tab is the host. It owns health, scores, timers and flags. It checks every hit with lag compensation (where the target really was when the shooter fired, line of sight, range and fire rate). Other players are drawn 100 ms in the past and interpolated, so movement looks smooth.
 - **Sound:** every sound and the music for each mode are synthesized with the Web Audio API, so there are no audio files to download. Shots and footsteps come from where they happen, and walls muffle them.
 - **Settings (⚙):** look speed, field of view, volumes, invert Y and low graphics.

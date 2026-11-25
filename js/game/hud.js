@@ -247,7 +247,7 @@ export function createHUD() {
       const team = G.mode === "tdm" || G.mode === "ctf";
       $("gmPlayers").innerHTML = ids.map((id) => {
         const p = G.players[id];
-        return `<li><span class="gm-dot" style="background:${COLORS[p.slot]}"></span>${esc(p.name)}${id === myId ? " <span class='gm-muted'>(you)</span>" : ""}${isHost && id === myId ? " <span class='gm-muted'>· host</span>" : ""}${team ? ` <span class="gm-team ${p.team}">${p.team === "r" ? "RED" : "BLUE"}</span>` : ""}</li>`;
+        return `<li><span class="gm-dot" style="background:${COLORS[p.slot]}"></span>${esc(p.name)}${id === myId ? " <span class='gm-muted'>(you)</span>" : ""}${isHost && id === myId ? " <span class='gm-muted'>· host</span>" : ""}${p.net === "relay" ? " <span class='gm-muted'>· via relay</span>" : ""}${team ? ` <span class="gm-team ${p.team}">${p.team === "r" ? "RED" : "BLUE"}</span>` : ""}</li>`;
       }).join("") + (ids.length < maxPlayers ? `<li class="gm-muted">${maxPlayers - ids.length} more can join</li>` : "");
       for (const b of $("gmModes").children) { b.classList.toggle("on", b.dataset.mode === G.mode); b.disabled = !isHost; }
       $("gmModeInfo").textContent = modes[G.mode].info;
