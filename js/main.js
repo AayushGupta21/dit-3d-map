@@ -1,12 +1,11 @@
 import * as THREE from "three";
 import { MapControls } from "three/addons/controls/MapControls.js";
-import { buildWorld, buildingHeight, ribbon, toV3 } from "./world.js?v=1795612424";
-import { sunPosition, sunVector, istMinutes, istDateAt, istMonth, sunTimes, fmtTime } from "./sun.js?v=1795612424";
-import { buildGraph, route } from "./routing.js?v=1795612424";
-import { openGMap } from "./gmap.js?v=1795612424";
-import { createWalk } from "./walk.js?v=1795612424";
-import { createGame } from "./game.js?v=1795612424";
-import { createTraffic } from "./traffic.js?v=1795612424";
+import { buildWorld, buildingHeight, ribbon, toV3 } from "./world.js?v=1795617162";
+import { sunPosition, sunVector, istMinutes, istDateAt, istMonth, sunTimes, fmtTime } from "./sun.js?v=1795617162";
+import { buildGraph, route } from "./routing.js?v=1795617162";
+import { openGMap } from "./gmap.js?v=1795617162";
+import { createWalk } from "./walk.js?v=1795617162";
+import { createTraffic } from "./traffic.js?v=1795617162";
 
 const DATA = window.CAMPUS_DATA;
 const KEY = (window.DIT_CONFIG || {}).GOOGLE_MAPS_API_KEY || "";
@@ -598,9 +597,25 @@ $("infoWalk").onclick = () => {
 $("walkExit").onclick = exitWalk;
 addEventListener("keydown", (e) => { if (e.key === "Escape" && walk.active && !game.active) exitWalk(); });
 
-// ---------- multiplayer ----------
-const game = createGame({ scene, camera, canvas, walk, world, data: DATA, enterWalk, exitWalk, toast, isTouch });
-$("btnPlay").onclick = () => game.open();
+// ---------- multiplayer (loaded only when someone presses Play) ----------
+let game = { active: false, update() {}, open() {} };
+let gameLoading = null;
+function loadGame() {
+  if (!gameLoading) {
+    $("btnPlay").textContent = "Loading…";
+    gameLoading = import("./game/index.js?v=1795617162").then((m) => {
+      game = m.createGame({ scene, camera, canvas, walk, world, data: DATA, enterWalk, exitWalk, toast, isTouch, lite });
+      return game;
+    }).catch((err) => { gameLoading = null; toast("Couldn't load the game. Check your connection."); throw err; })
+      .finally(() => { $("btnPlay").textContent = "🎮 Play"; });
+  }
+  return gameLoading;
+}
+$("btnPlay").onclick = () => loadGame().then((g) => g.open()).catch(() => {});
+{
+  const room = new URLSearchParams(location.search).get("room");
+  if (room) loadGame().then((g) => g.open(room.toUpperCase())).catch(() => {});
+}
 
 // ---------- render loop (renders only when something changes) ----------
 let dirty = 2, labelsDirty = true;
@@ -673,4 +688,4 @@ const q = new URLSearchParams(location.search).get("place");
 if (q && byId.get(q)) setTimeout(() => select(byId.get(q)), 400);
 
 // debugging aid: open with ?debug to poke at the scene from the console
-if (new URLSearchParams(location.search).has("debug")) window.__dit = { game, traffic, THREE, scene, camera, controls, walk, world };
+if (new URLSearchParams(location.search).has("debug")) window.__dit = { get game() { return game; }, traffic, THREE, scene, camera, controls, walk, world };

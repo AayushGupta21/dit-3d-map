@@ -22,6 +22,9 @@ export function createWalk({ camera, canvas, data, joystickEl, knobEl }) {
   const st = {
     active: false, pos: [0, 0], yaw: 0, pitch: -0.05, bob: 0,
     keys: new Set(), joy: { x: 0, y: 0, id: null }, look: null, frozen: false, lockLook: false,
+    // game mode extras: crouch / jump / sprint control and look tuning
+    game: false, crouchBtn: false, crouch: false, eye: EYE, jy: 0, vy: 0, jumpReq: false, landed: false,
+    speedMul: 1, canRun: true, running: false, moving: false, lookMul: 1, invertY: false,
   };
 
   // ---------- collision ----------
@@ -98,8 +101,10 @@ export function createWalk({ camera, canvas, data, joystickEl, knobEl }) {
   const onKey = (down) => (e) => {
     if (!st.active || e.target.closest?.("input, select, textarea")) return;
     const k = e.key.toLowerCase();
-    if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright", "shift", "q", "e"].includes(k)) {
+    if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright", "shift", "q", "e"].includes(k)
+      || (st.game && ["c", "control", " "].includes(k))) {
       e.preventDefault();
+      if (k === " " && down && !e.repeat) st.jumpReq = true;
       down ? st.keys.add(k) : st.keys.delete(k);
     }
   };
@@ -115,15 +120,15 @@ export function createWalk({ camera, canvas, data, joystickEl, knobEl }) {
     if (!st.active || !st.look || e.pointerId !== st.look.id) return;
     const dx = e.clientX - st.look.x, dy = e.clientY - st.look.y;
     st.look.x = e.clientX; st.look.y = e.clientY;
-    const k = e.pointerType === "touch" ? 0.006 : 0.0035;
+    const k = (e.pointerType === "touch" ? 0.006 : 0.0035) * st.lookMul;
     st.yaw -= dx * k;
-    st.pitch = Math.max(-1.25, Math.min(1.25, st.pitch - dy * k));
+    st.pitch = Math.max(-1.25, Math.min(1.25, st.pitch - dy * k * (st.invertY ? -1 : 1)));
   });
   // mouse-locked look (game mode on desktop): no button needed
   addEventListener("mousemove", (e) => {
     if (!st.active || document.pointerLockElement !== canvas) return;
-    st.yaw -= e.movementX * 0.0022;
-    st.pitch = Math.max(-1.25, Math.min(1.25, st.pitch - e.movementY * 0.0022));
+    st.yaw -= e.movementX * 0.0022 * st.lookMul;
+    st.pitch = Math.max(-1.25, Math.min(1.25, st.pitch - e.movementY * 0.0022 * st.lookMul * (st.invertY ? -1 : 1)));
     st.lockLook = true;
   });
   const endLook = (e) => { if (st.look && e.pointerId === st.look.id) st.look = null; };
@@ -166,11 +171,13 @@ export function createWalk({ camera, canvas, data, joystickEl, knobEl }) {
   }
   function exit() {
     st.active = false; st.keys.clear(); st.look = null;
+    st.game = false; st.crouchBtn = false; st.crouch = false; st.eye = EYE; st.jy = 0; st.vy = 0;
+    st.speedMul = 1; st.canRun = true; st.lookMul = 1; st.invertY = false;
     camera.fov = 42; camera.near = 1; camera.updateProjectionMatrix();
   }
   function apply() {
     const bob = Math.sin(st.bob) * 0.04;
-    camera.position.set(st.pos[0], EYE + bob, -st.pos[1]);
+    camera.position.set(st.pos[0], st.eye + st.jy + bob, -st.pos[1]);
     const dir = new THREE.Vector3(
       -Math.sin(st.yaw) * Math.cos(st.pitch),
       Math.sin(st.pitch),
@@ -188,8 +195,24 @@ export function createWalk({ camera, canvas, data, joystickEl, knobEl }) {
     const l = Math.hypot(f, s);
     if (l > 1) { f /= l; s /= l; }
     const moving = l > 0.05;
+    // crouch / jump (game mode only)
+    let vert = false;
+    st.crouch = st.game && !st.frozen && (k.has("c") || k.has("control") || st.crouchBtn);
+    const eyeT = st.crouch ? 1.12 : EYE;
+    if (Math.abs(st.eye - eyeT) > 0.002) { st.eye += (eyeT - st.eye) * Math.min(1, dt * 12); vert = true; }
+    if (st.jumpReq && st.game && st.jy === 0 && !st.frozen) st.vy = 4.6;
+    st.jumpReq = false;
+    if (st.jy > 0 || st.vy > 0) {
+      st.vy -= 13 * dt;
+      st.jy = Math.max(0, st.jy + st.vy * dt);
+      if (st.jy === 0) { st.vy = 0; st.landed = true; }
+      vert = true;
+    }
+    st.moving = moving && !st.frozen;
+    st.running = st.moving && !st.crouch && st.canRun && f > 0.3 && (k.has("shift") || Math.hypot(st.joy.x, st.joy.y) > 0.95);
     if (moving && !st.frozen) {
-      const speed = (k.has("shift") || Math.hypot(st.joy.x, st.joy.y) > 0.95 ? RUN : WALK) * dt;
+      const base = st.game ? (st.running ? 6.6 : WALK) : (k.has("shift") || Math.hypot(st.joy.x, st.joy.y) > 0.95 ? RUN : WALK);
+      const speed = base * st.speedMul * (st.crouch ? 0.5 : 1) * (st.jy > 0 ? 0.85 : 1) * dt;
       // forward in data space: yaw 0 looks north (+y)
       const fx = -Math.sin(st.yaw), fy = Math.cos(st.yaw);
       const rx = Math.cos(st.yaw), ry = Math.sin(st.yaw);
@@ -200,7 +223,7 @@ export function createWalk({ camera, canvas, data, joystickEl, knobEl }) {
     }
     const looking = !!st.look || st.lockLook;
     st.lockLook = false;
-    if ((moving && !st.frozen) || looking || turn) { apply(); return true; }
+    if ((moving && !st.frozen) || looking || turn || vert) { apply(); return true; }
     return false;
   }
 
@@ -213,6 +236,23 @@ export function createWalk({ camera, canvas, data, joystickEl, knobEl }) {
   return {
     enter, exit, update, resolve, findOpen, setPos, clearance,
     get pitch() { return st.pitch; },
+    /** Re-place the camera from the walker state (game mode does this every frame, then adds shake). */
+    refresh: apply,
+    /** Kick the view (weapon recoil). */
+    addLook(dYaw, dPitch) { st.yaw += dYaw; st.pitch = Math.max(-1.25, Math.min(1.25, st.pitch + dPitch)); },
+    jump() { st.jumpReq = true; },
+    takeLanding() { const l = st.landed; st.landed = false; return l; },
+    get game() { return st.game; }, set game(v) { st.game = v; },
+    get crouch() { return st.crouch; },
+    set crouchBtn(v) { st.crouchBtn = v; }, get crouchBtn() { return st.crouchBtn; },
+    get jy() { return st.jy; },
+    get eye() { return st.eye + st.jy; },
+    get running() { return st.running; },
+    get moving() { return st.moving; },
+    set speedMul(v) { st.speedMul = v; },
+    set canRun(v) { st.canRun = v; },
+    set lookMul(v) { st.lookMul = v; },
+    set invertY(v) { st.invertY = v; },
     get frozen() { return st.frozen; },
     set frozen(v) { st.frozen = v; if (v) st.keys.clear(); },
     get active() { return st.active; },

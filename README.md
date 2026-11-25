@@ -50,13 +50,34 @@ Run `npm run build` again after any change to `js/`, `css/` or `data/`.
 
 ## Multiplayer (🎮 Play)
 
-2 to 4 players, each in their own browser. One person presses **Play → Create a room** and shares the 5-letter code or the invite link. The others join with it. Modes:
+2 to 4 players, each in their own browser. One person presses **Play → Create a room** and shares the 5-letter code or the invite link; the others join with it. While waiting in the lobby you can walk around and try the guns.
 
-- **Shootout:** everyone for themselves. Most takedowns in 5 minutes wins (or first to 10).
-- **Hide & Seek:** one seeker counts to 30 while everyone hides. Then the seeker has 3 minutes to find (shoot) them, and found players become seekers too.
+**Modes**
+- **Shootout:** everyone for themselves. Most takedowns in 5 minutes wins, or first to 10.
+- **Team Deathmatch:** Red vs Blue, first team to 25. No friendly fire.
+- **Capture the Flag:** the Red base is the Chanakya Flag Lawn and the Blue base is the Boys Hostel Sports Ground. Grab their flag and bring it home while yours is safe; first to 3 wins. Carrying a flag slows you down. A dropped flag goes home after 20 s.
+- **Hide & Seek:** one seeker counts to 30, then has 3 minutes. The seeker gets a radar ping every 30 s. Found hiders become seekers. Hiders can taunt (T) for points.
 
-Controls:
-- **Desktop:** click to aim with the mouse, WASD to move, Shift to run, click or Space to shoot.
-- **Phone:** joystick to move, drag to look, FIRE button to shoot.
+**Weapons:** pistol, rifle (auto), shotgun (8 pellets) and sniper (scope). Each has its own damage, headshot multiplier, range falloff, spread, recoil, magazine and reload.
 
-The browsers connect directly to each other over WebRTC (PeerJS). The free PeerJS server is only used to introduce them, so no game server is needed. The room creator's tab runs the game, so if the host closes it, the round ends.
+**Controls**
+- **Desktop:**
+  - Click to lock the mouse.
+  - WASD to move, Shift to sprint (uses stamina), Space to jump, C to crouch.
+  - Left-click to fire (hold for the rifle), right-click to aim down sights, R to reload.
+  - 1 to 4 or the mouse wheel to switch weapons, Tab for scores, T to taunt.
+- **Phone:** joystick, drag to look, plus FIRE, AIM, R, JUMP, DUCK, SWAP and Scores buttons. Aim assist slows the look slightly over enemies.
+
+**How it works**
+- **Code:** `js/game/`:
+  - `index.js`: rooms, netcode and modes.
+  - `weapons.js`: stats, first-person models and animation.
+  - `fx.js`: tracers, sparks, dust, bullet holes, casings and muzzle flash.
+  - `audio.js`: synthesized 3D sound and music.
+  - `avatar.js`: animated players.
+  - `hud.js`: UI and minimap.
+- **Loading:** all of it is loaded only when someone presses Play, about 29 KB gzipped.
+- **Networking:** the browsers connect directly over WebRTC (PeerJS). The free PeerJS server only introduces them, so no game server is needed.
+- **Host authority:** the room creator's tab is the host. It owns health, scores, timers and flags. It checks every hit with lag compensation (where the target really was when the shooter fired, line of sight, range and fire rate). Other players are drawn 100 ms in the past and interpolated, so movement looks smooth.
+- **Sound:** every sound and the music for each mode are synthesized with the Web Audio API, so there are no audio files to download. Shots and footsteps come from where they happen, and walls muffle them.
+- **Settings (⚙):** look speed, field of view, volumes, invert Y and low graphics.

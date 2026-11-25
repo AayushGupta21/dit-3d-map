@@ -21,13 +21,19 @@ const stripQuery = {
     b.onResolve({ filter: /^three\/addons\// }, (a) => b.resolve(a.path.replace("three/addons/", "three/examples/jsm/"), { kind: a.kind, resolveDir: a.resolveDir }));
   },
 };
+// splitting: the multiplayer game becomes its own chunk, fetched only when someone presses Play
 const res = await esbuild.build({
   entryPoints: ["js/main.js"], bundle: true, minify: true, format: "esm", target: "es2020",
+  splitting: true, outdir: OUT, entryNames: "app.[hash]", chunkNames: "chunks/[name].[hash]",
   write: false, plugins: [stripQuery], legalComments: "none",
 });
-const js = res.outputFiles[0].contents;
-const jsName = `app.${hash(js)}.js`;
-writeFileSync(`${OUT}/${jsName}`, js);
+let jsName = "";
+for (const f of res.outputFiles) {
+  const rel = f.path.slice(f.path.lastIndexOf(`/${OUT}/`) + OUT.length + 2);
+  mkdirSync(`${OUT}/${rel.split("/").slice(0, -1).join("/") || "."}`, { recursive: true });
+  writeFileSync(`${OUT}/${rel}`, f.contents);
+  if (rel.startsWith("app.")) jsName = rel;
+}
 
 // 2) styles and data, content-hashed so they can be cached forever
 const css = (await esbuild.build({ entryPoints: ["css/map.css"], bundle: true, minify: true, write: false, external: ["*.jpg", "*.svg"] })).outputFiles[0].contents;
@@ -56,15 +62,16 @@ html = html.replace(/<script src="config\.js"><\/script>/, `<script src="config.
 // fonts: don't block first paint on Google Fonts
 html = html.replace(/<link rel="stylesheet" href="(https:\/\/fonts\.googleapis\.com[^"]+)" \/>/,
   `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />\n  <link rel="stylesheet" href="$1" media="print" onload="this.media='all'" />`);
-html = html.replace("</title>", `</title>\n  <link rel="modulepreload" href="${jsName}" />\n  <link rel="preload" href="${dataName}" as="script" />\n  <link rel="preload" href="assets/ground.jpg" as="image" />`);
+const shared = res.outputFiles.map((f) => f.path.slice(f.path.lastIndexOf(`/${OUT}/`) + OUT.length + 2)).filter((r) => r.startsWith("chunks/chunk."));
+html = html.replace("</title>", `</title>\n  <link rel="modulepreload" href="${jsName}" />${shared.map((c) => `\n  <link rel="modulepreload" href="${c}" />`).join("")}\n  <link rel="preload" href="${dataName}" as="script" />\n  <link rel="preload" href="assets/ground.jpg" as="image" />`);
 writeFileSync(`${OUT}/index.html`, html);
 
 // 5) host config: long cache for hashed files, revalidate the HTML
 const immutable = "public, max-age=31536000, immutable";
-writeFileSync(`${OUT}/_headers`, `/*.js\n  Cache-Control: ${immutable}\n/*.css\n  Cache-Control: ${immutable}\n/data/*\n  Cache-Control: ${immutable}\n/assets/*\n  Cache-Control: public, max-age=604800\n/config.js\n  Cache-Control: no-cache\n/index.html\n  Cache-Control: no-cache\n`);
+writeFileSync(`${OUT}/_headers`, `/*.js\n  Cache-Control: ${immutable}\n/chunks/*\n  Cache-Control: ${immutable}\n/*.css\n  Cache-Control: ${immutable}\n/data/*\n  Cache-Control: ${immutable}\n/assets/*\n  Cache-Control: public, max-age=604800\n/config.js\n  Cache-Control: no-cache\n/index.html\n  Cache-Control: no-cache\n`);
 writeFileSync(`${OUT}/vercel.json`, JSON.stringify({
   headers: [
-    { source: "/(app\\..*\\.js|map\\..*\\.css|data/.*)", headers: [{ key: "Cache-Control", value: immutable }] },
+    { source: "/(app\\..*\\.js|map\\..*\\.css|data/.*|chunks/.*)", headers: [{ key: "Cache-Control", value: immutable }] },
     { source: "/assets/(.*)", headers: [{ key: "Cache-Control", value: "public, max-age=604800" }] },
     { source: "/config.js", headers: [{ key: "Cache-Control", value: "no-cache" }] },
   ],
@@ -72,5 +79,6 @@ writeFileSync(`${OUT}/vercel.json`, JSON.stringify({
 
 const kb = (f) => (statSync(`${OUT}/${f}`).size / 1024).toFixed(0);
 const gz = (f) => (gzipSync(readFileSync(`${OUT}/${f}`)).length / 1024).toFixed(0);
-for (const f of [jsName, cssName, dataName, "assets/ground.jpg"]) console.log(`${f.padEnd(34)} ${kb(f).padStart(5)} KB  (${gz(f)} KB gzipped)`);
+const chunks = res.outputFiles.map((f) => f.path.slice(f.path.lastIndexOf(`/${OUT}/`) + OUT.length + 2)).filter((r) => r.startsWith("chunks/"));
+for (const f of [jsName, ...chunks, cssName, dataName, "assets/ground.jpg"]) console.log(`${f.padEnd(34)} ${kb(f).padStart(5)} KB  (${gz(f)} KB gzipped)`);
 console.log(`\nBuilt ${OUT}/. Upload that folder to any static host.`);

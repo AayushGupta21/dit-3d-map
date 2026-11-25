@@ -11,7 +11,7 @@
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" />
-  <link rel="stylesheet" href="css/map.css?v=1795612424" />
+  <link rel="stylesheet" href="css/map.css?v=1795617162" />
   <script type="importmap">
   {
     "imports": {
@@ -144,43 +144,6 @@
     <div class="crosshair"></div>
   </div>
 
-  <!-- Multiplayer: start dialog -->
-  <section id="mpStart" class="modal" hidden>
-    <div class="card modalcard mpstart">
-      <button class="iconbtn close" id="mpClose" aria-label="Close">×</button>
-      <h2>Play with friends</h2>
-      <p class="muted">2 to 4 players, each in their own browser, anywhere on campus. Pick <b>Shootout</b> or <b>Hide &amp; Seek</b> once everyone is in.</p>
-      <label class="mpfield">Your name<input id="mpName" maxlength="14" placeholder="e.g. Aayush" autocomplete="nickname" /></label>
-      <button class="pill accent big" id="mpCreate">Create a room</button>
-      <div class="mpor muted">or join a friend</div>
-      <div class="mpjoin"><input id="mpJoinCode" maxlength="5" placeholder="Room code" autocomplete="off" autocapitalize="characters" /><button class="pill" id="mpJoin">Join</button></div>
-      <p class="muted small" id="mpStatus"></p>
-    </div>
-  </section>
-
-  <!-- Multiplayer: lobby + in-game HUD -->
-  <section id="mpLobby" class="card mplobby" hidden>
-    <div class="mphead"><div><span class="muted small">ROOM CODE</span><div class="mpcode" id="mpCode"></div></div><button class="pill" id="mpCopy">Copy invite link</button></div>
-    <ul class="mpplayers" id="mpPlayers"></ul>
-    <div class="row" id="mpModes"><button class="pill on" data-mode="dm">Shootout</button><button class="pill" data-mode="hs">Hide &amp; Seek</button></div>
-    <p class="muted small" id="mpModeInfo"></p>
-    <div class="row"><button class="pill accent" id="mpStartGame">Start game</button><button class="pill" id="mpLeave">Leave</button></div>
-    <p class="muted small" id="mpWait"></p>
-  </section>
-  <div id="mpHud" hidden>
-    <div class="card mptop" id="mpTimer">Lobby</div>
-    <div class="card mpscore" id="mpScore"></div>
-    <div class="mpfeed" id="mpFeed"></div>
-    <div class="mpbig" id="mpBig" hidden></div>
-    <div class="card mphp" id="mpHpBox" hidden><div class="mphpbar"><i id="mpHpFill"></i></div><span id="mpRole"></span></div>
-    <button class="mpfire" id="mpFire" hidden aria-label="Fire">FIRE</button>
-    <div class="mphit" id="mpHit"></div>
-    <div class="mpdmg" id="mpDmg"></div>
-    <div class="card mpaim" id="mpAim" hidden>Click the map to aim with your mouse</div>
-    <button class="card pill mpleave" id="mpLeaveBtn">Leave game</button>
-  </div>
-  <div id="mpBlind" class="mpblind" hidden><div><p>You're the seeker</p><b id="mpBlindT">30</b><p class="muted">Everyone else is hiding…</p></div></div>
-
   <div class="hint card" id="hint">Drag to move · pinch or scroll to zoom · right-drag or two-finger twist to rotate</div>
 
   <!-- Google 2D map overlay -->
@@ -203,7 +166,7 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="config.js"></script>
-  <script src="data/campus.js?v=1795612424"></script>
-  <script type="module" src="js/main.js?v=1795612424"></script>
+  <script src="data/campus.js?v=1795617162"></script>
+  <script type="module" src="js/main.js?v=1795617162"></script>
 </body>
 </html>
