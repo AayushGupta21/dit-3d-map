@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import { MapControls } from "three/addons/controls/MapControls.js";
-import { buildWorld, buildingHeight, ribbon, toV3 } from "./world.js?v=1795626256";
-import { sunPosition, sunVector, istMinutes, istDateAt, istMonth, sunTimes, fmtTime } from "./sun.js?v=1795626256";
-import { buildGraph, route } from "./routing.js?v=1795626256";
-import { openGMap } from "./gmap.js?v=1795626256";
-import { createWalk } from "./walk.js?v=1795626256";
-import { createTraffic } from "./traffic.js?v=1795626256";
+import { buildWorld, buildingHeight, ribbon, toV3 } from "./world.js?v=1795626584";
+import { sunPosition, sunVector, istMinutes, istDateAt, istMonth, sunTimes, fmtTime } from "./sun.js?v=1795626584";
+import { buildGraph, route } from "./routing.js?v=1795626584";
+import { openGMap } from "./gmap.js?v=1795626584";
+import { createWalk } from "./walk.js?v=1795626584";
+import { createTraffic } from "./traffic.js?v=1795626584";
 
 const DATA = window.CAMPUS_DATA;
 const KEY = (window.DIT_CONFIG || {}).GOOGLE_MAPS_API_KEY || "";
@@ -603,7 +603,7 @@ let gameLoading = null;
 function loadGame() {
   if (!gameLoading) {
     $("btnPlay").textContent = "Loading…";
-    gameLoading = import("./game/index.js?v=1795626256").then((m) => {
+    gameLoading = import("./game/index.js?v=1795626584").then((m) => {
       game = m.createGame({ scene, camera, canvas, walk, world, data: DATA, enterWalk, exitWalk, toast, isTouch, lite });
       return game;
     }).catch((err) => { gameLoading = null; toast("Couldn't load the game. Check your connection."); throw err; })

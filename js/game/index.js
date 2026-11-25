@@ -24,7 +24,7 @@ const MODES = {
   ctf: { name: "Capture the Flag", team: true, time: 480e3, target: 3,
     info: "Red base: Chanakya Flag Lawn. Blue base: Boys Hostel Sports Ground. Walk up to the enemy flag and press E (on phones tap ✋) to take it, then run into your own ring to score. Your own flag must be at home to score. If your flag is dropped, press E next to it to send it home. First to 3." },
   hs: { name: "Hide & Seek", team: false, hide: 30e3, time: 180e3,
-    info: "One seeker counts to 30 while everyone hides. Glowing green doors on some hostels lead to secret rooms on the upper floors (press E or tap ✋); which hostels are open changes every round. The seeker gets a radar ping every 30 s. One shot finds a hider, who then joins the seekers. Hiders: press T to taunt for points." },
+    info: "One seeker counts to 30 while everyone hides. Glowing green doors on some hostels lead to secret rooms on the upper floors (press E or tap ✋); the open hostels, where the rooms are inside them, how high you can climb and the furniture all change every round. The seeker gets a radar ping every 30 s. One shot finds a hider, who then joins the seekers. Hiders: press T to taunt for points." },
 };
 const MAX_PLAYERS = Infinity, TICK = 50, INTERP = 100, RESPAWN = 3000, PROTECT = 2000, OVER_TIME = 9000;
 const PEERJS = ["https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js", "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"];

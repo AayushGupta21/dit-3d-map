@@ -19,24 +19,33 @@ export function seeded(seed) {
 }
 const hashStr = (s) => s.split("").reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 
-/** The biggest room rectangle (in the building's own axis) that fits inside the footprint. */
-function fitRoom(b) {
+/**
+ * A room rectangle (in the building's own axis) that fits inside the footprint. Without `rnd` it is
+ * the biggest one; with `rnd` it gets a random size and position, so hiding spots move every round.
+ */
+function fitRoom(b, rnd = null) {
   const [cx, cy] = b.c;
   let sxx = 0, syy = 0, sxy = 0;
   for (const [x, y] of b.pts) { sxx += (x - cx) ** 2; syy += (y - cy) ** 2; sxy += (x - cx) * (y - cy); }
   const ang = 0.5 * Math.atan2(2 * sxy, sxx - syy);
   const c = Math.cos(ang), s = Math.sin(ang);
   const at = (u, v) => [cx + u * c - v * s, cy + u * s + v * c];
-  const fits = (hw, hd) => {
+  const fits = (hw, hd, u0 = 0, v0 = 0) => {
     const m = 0.5;
     for (let i = 0; i <= 12; i++) {
       const k = i / 12;
-      const pts = [at(-hw - m + 2 * (hw + m) * k, -hd - m), at(-hw - m + 2 * (hw + m) * k, hd + m),
-        at(-hw - m, -hd - m + 2 * (hd + m) * k), at(hw + m, -hd - m + 2 * (hd + m) * k)];
+      const pts = [at(u0 - hw - m + 2 * (hw + m) * k, v0 - hd - m), at(u0 - hw - m + 2 * (hw + m) * k, v0 + hd + m),
+        at(u0 - hw - m, v0 - hd - m + 2 * (hd + m) * k), at(u0 + hw + m, v0 - hd - m + 2 * (hd + m) * k)];
       if (pts.some(([x, y]) => !pointIn(x, y, b.pts))) return false;
     }
     return true;
   };
+  if (rnd) {
+    for (let i = 0; i < 60; i++) {
+      const hw = 3.5 + rnd() * 3.5, hd = 2 + rnd() * 1.5, u0 = (rnd() - 0.5) * 24, v0 = (rnd() - 0.5) * 8;
+      if (fits(hw, hd, u0, v0)) { const [x, y] = at(u0, v0); return { cx: x, cy: y, ang, hw, hd }; }
+    }
+  }
   let best = null;
   for (const hw of [7, 6, 5, 4.5, 4, 3.5, 3]) for (const hd of [3.5, 3, 2.5, 2]) {
     if (hd > hw || (best && hw * hd <= best.hw * best.hd)) continue;
@@ -66,30 +75,50 @@ function tileTex(a, b, n = 8) {
 export function createHideouts({ scene, data, walk, inCampus }) {
   // ---------- where the hideouts are ----------
   const list = [];
-  for (const b of data.buildings) {
-    if (b.cat !== "hostel" || !b.pts || b.pts.length < 3) continue;
-    const r = fitRoom(b);
-    if (!r) continue;
-    const floors = Math.min(MAX_FLOORS, (b.levels || 2) - 1);
-    if (floors < 1) continue;
-    // a door spot just outside the wall, trying the long sides first
+  /** Door spot just outside the wall, trying the sides in the given order. */
+  function doorFor(b, r, sides) {
     const c = Math.cos(r.ang), s = Math.sin(r.ang);
-    let door = null;
-    for (const [du, dv] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+    for (const [du, dv] of sides) {
       const dx = du * c - dv * s, dy = du * s + dv * c;
       let d = 0;
       while (d < 60 && pointIn(r.cx + dx * d, r.cy + dy * d, b.pts)) d += 0.25;
       const wx = r.cx + dx * d, wy = r.cy + dy * d;
       const px = wx + dx * 1.45, py = wy + dy * 1.45;
       if (walk.clearance(px, py) < 1.15 || !inCampus([px, py])) continue;
-      door = { x: px, y: py, wx, wy, dx, dy, yaw: Math.atan2(-dx, dy) };
-      break;
+      return { x: px, y: py, wx, wy, dx, dy, yaw: Math.atan2(-dx, dy) };
     }
+    return null;
+  }
+  const SIDES = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+  for (const b of data.buildings) {
+    if (b.cat !== "hostel" || !b.pts || b.pts.length < 3) continue;
+    const r = fitRoom(b);
+    if (!r) continue;
+    const maxFloors = Math.min(MAX_FLOORS, (b.levels || 2) - 1);
+    if (maxFloors < 1) continue;
+    const door = doorFor(b, r, SIDES);
     if (!door) continue;
     const short = b.name.replace(/\s*\(.*\)/, "").replace("Hostel – ", "").replace(" Hostel", "");
-    list.push({ id: b.id, name: b.name, short, rect: r, floors, door });
+    list.push({ id: b.id, name: b.name, short, b, base: r, maxFloors, floors: maxFloors, rects: [null, r, r, r], door });
   }
   const byId = new Map(list.map((h) => [h.id, h]));
+  let layoutSeed = 0;
+  /** New random rooms (size, place, floor count) and door side for every hostel. 0 = the default layout. */
+  function layout(seed) {
+    if (seed === layoutSeed) return false;
+    layoutSeed = seed;
+    for (const h of list) {
+      const rnd = seed ? seeded(seed ^ hashStr(h.id)) : null;
+      h.floors = rnd ? 1 + Math.floor(rnd() * h.maxFloors) : h.maxFloors;
+      h.rects = [null];
+      for (let k = 1; k <= MAX_FLOORS; k++) h.rects.push(rnd ? fitRoom(h.b, rnd) || h.base : h.base);
+      const sides = [...SIDES];
+      // Fisher-Yates, so every browser (Chrome, Safari...) shuffles the same way
+      if (rnd) for (let i = sides.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [sides[i], sides[j]] = [sides[j], sides[i]]; }
+      h.door = doorFor(h.b, h.rects[1], sides) || doorFor(h.b, h.base, SIDES) || h.door;
+    }
+    return true;
+  }
 
   // ---------- shared materials ----------
   const M = {
@@ -115,6 +144,9 @@ export function createHideouts({ scene, data, walk, inCampus }) {
   // ---------- portals (outside, on the ground floor) ----------
   const portals = new THREE.Group();
   scene.add(portals);
+  const signTex = new Map();
+  function buildPortals() {
+  for (const c of [...portals.children]) portals.remove(c);
   for (const h of list) {
     const g = new THREE.Group();
     const d = h.door;
@@ -125,19 +157,22 @@ export function createHideouts({ scene, data, walk, inCampus }) {
     box(g, M.frame, 1.86, 0.18, 0.16, 0, 2.55, 0);
     const pane = new THREE.Mesh(new THREE.PlaneGeometry(1.54, 2.4), M.glow);
     pane.position.set(0, 1.2, 0); g.add(pane);
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.55), new THREE.MeshBasicMaterial({ map: labelTex(`▲ ${h.short} stairs`, "#0f2a20", "#9ff5cf") }));
+    if (!signTex.has(h.id)) signTex.set(h.id, new THREE.MeshBasicMaterial({ map: labelTex(`▲ ${h.short} stairs`, "#0f2a20", "#9ff5cf") }));
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.55), signTex.get(h.id));
     sign.position.set(0, 3.0, 0.05); g.add(sign);
     g.visible = false;
     h.portal = g;
     portals.add(g);
   }
+  }
+  buildPortals();
 
   // ---------- rooms (built the first time someone needs them) ----------
   const rooms = new Map();
   function room(hid, floor) {
     const key = hid + ":" + floor;
     if (rooms.has(key)) return rooms.get(key);
-    const h = byId.get(hid), r = h.rect;
+    const h = byId.get(hid), r = h.rects[floor];
     const y = floor * FLOOR + 0.05;
     const g = new THREE.Group();
     g.position.set(r.cx, y, -r.cy); g.rotation.y = r.ang;
@@ -155,7 +190,7 @@ export function createHideouts({ scene, data, walk, inCampus }) {
     doorAt(r.hw - 0.04, -Math.PI / 2, up ? `▲ Floor ${floor + 1}` : "Roof locked", up);
     doorAt(-r.hw + 0.04, Math.PI / 2, downTxt, true);
     // furniture: different every room, good for crouching behind (or inside the cupboard...)
-    const rnd = seeded(hashStr(key));
+    const rnd = seeded(hashStr(key) ^ layoutSeed);
     const n = Math.max(1, Math.floor((W - 3.2) / 2.3));
     for (let i = 0; i < n; i++) {
       const x = -r.hw + 2.1 + i * 2.3 + rnd() * 0.3;
@@ -185,11 +220,11 @@ export function createHideouts({ scene, data, walk, inCampus }) {
     if (sy < FLOOR * 0.9) return null;
     const x = sx, y = -sz;
     for (const h of list) {
-      const r = h.rect, c = Math.cos(r.ang), s = Math.sin(r.ang), dx = x - r.cx, dy = y - r.cy;
-      const u = dx * c + dy * s, v = -dx * s + dy * c;
-      if (Math.abs(u) > r.hw + 0.05 || Math.abs(v) > r.hd + 0.05) continue;
       const k = Math.floor((sy - 0.05) / FLOOR);
       if (k < 1 || k > h.floors || sy - (k * FLOOR + 0.05) > ROOM_H) continue;
+      const r = h.rects[k], c = Math.cos(r.ang), s = Math.sin(r.ang), dx = x - r.cx, dy = y - r.cy;
+      const u = dx * c + dy * s, v = -dx * s + dy * c;
+      if (Math.abs(u) > r.hw + 0.05 || Math.abs(v) > r.hd + 0.05) continue;
       return { cx: r.cx, cy: r.cy, ang: r.ang, hw: r.hw, hd: r.hd, y: k * FLOOR + 0.05 };
     }
     return null;
@@ -218,6 +253,14 @@ export function createHideouts({ scene, data, walk, inCampus }) {
   // ---------- which hostels are open this round ----------
   let open = new Set();
   function setOpen(seed) {
+    if (seed !== null && layout(seed || 0)) {
+      // new round, new hiding spots: rebuild doors and rooms
+      const inside = walk.room && byId.get(walk.room.hid);
+      for (const r of rooms.values()) scene.remove(r.g);
+      rooms.clear();
+      buildPortals();
+      if (inside) exit(inside);
+    }
     if (seed === null) open = new Set();
     else if (!seed) open = new Set(list.map((h) => h.id));
     else {

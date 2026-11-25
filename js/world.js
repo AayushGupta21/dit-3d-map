@@ -2,7 +2,7 @@
 // Scene space: x = east (m), y = up (m), z = south (m). Data space: [x east, y north].
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { makeFacade, makeGlow, STYLES, BAY, FLOOR, TILE_BAYS, TILE_FLOORS } from "./textures.js?v=1795626256";
+import { makeFacade, makeGlow, STYLES, BAY, FLOOR, TILE_BAYS, TILE_FLOORS } from "./textures.js?v=1795626584";
 
 export const toV3 = (p, h = 0) => new THREE.Vector3(p[0], h, -p[1]);
 
