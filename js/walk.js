@@ -25,6 +25,8 @@ export function createWalk({ camera, canvas, data, joystickEl, knobEl }) {
     // game mode extras: crouch / jump / sprint control and look tuning
     game: false, crouchBtn: false, crouch: false, eye: EYE, jy: 0, vy: 0, jumpReq: false, landed: false,
     speedMul: 1, canRun: true, running: false, moving: false, lookMul: 1, invertY: false,
+    // indoor room (game hideouts): { cx, cy, ang, hw, hd, y } replaces building collision
+    room: null,
   };
 
   // ---------- collision ----------
@@ -50,6 +52,14 @@ export function createWalk({ camera, canvas, data, joystickEl, knobEl }) {
   }
   /** Push a point out of any building it is in or too close to. */
   function resolve(x, y) {
+    const rm = st.room;
+    if (rm) {
+      // keep inside the room's walls, in its own rotated frame
+      const c = Math.cos(rm.ang), s = Math.sin(rm.ang), dx = x - rm.cx, dy = y - rm.cy;
+      const u = Math.max(-rm.hw + 0.45, Math.min(rm.hw - 0.45, dx * c + dy * s));
+      const v = Math.max(-rm.hd + 0.45, Math.min(rm.hd - 0.45, -dx * s + dy * c));
+      return [rm.cx + u * c - v * s, rm.cy + u * s + v * c];
+    }
     for (let iter = 0; iter < 3; iter++) {
       let moved = false;
       for (const bx of boxes) {
@@ -172,12 +182,12 @@ export function createWalk({ camera, canvas, data, joystickEl, knobEl }) {
   function exit() {
     st.active = false; st.keys.clear(); st.look = null;
     st.game = false; st.crouchBtn = false; st.crouch = false; st.eye = EYE; st.jy = 0; st.vy = 0;
-    st.speedMul = 1; st.canRun = true; st.lookMul = 1; st.invertY = false;
+    st.speedMul = 1; st.canRun = true; st.lookMul = 1; st.invertY = false; st.room = null;
     camera.fov = 42; camera.near = 1; camera.updateProjectionMatrix();
   }
   function apply() {
     const bob = Math.sin(st.bob) * 0.04;
-    camera.position.set(st.pos[0], st.eye + st.jy + bob, -st.pos[1]);
+    camera.position.set(st.pos[0], (st.room ? st.room.y : 0) + st.eye + st.jy + bob, -st.pos[1]);
     const dir = new THREE.Vector3(
       -Math.sin(st.yaw) * Math.cos(st.pitch),
       Math.sin(st.pitch),
@@ -190,7 +200,8 @@ export function createWalk({ camera, canvas, data, joystickEl, knobEl }) {
     const k = st.keys;
     let f = (k.has("w") || k.has("arrowup") ? 1 : 0) - (k.has("s") || k.has("arrowdown") ? 1 : 0) - st.joy.y;
     let s = (k.has("d") ? 1 : 0) - (k.has("a") ? 1 : 0) + st.joy.x;
-    const turn = (k.has("arrowleft") || k.has("q") ? 1 : 0) - (k.has("arrowright") || k.has("e") ? 1 : 0);
+    // Q / E turn in plain walk mode; in the game E is "use" and the mouse turns
+    const turn = (k.has("arrowleft") || (!st.game && k.has("q")) ? 1 : 0) - (k.has("arrowright") || (!st.game && k.has("e")) ? 1 : 0);
     if (turn) st.yaw += turn * 1.8 * dt;
     const l = Math.hypot(f, s);
     if (l > 1) { f /= l; s /= l; }
@@ -243,6 +254,9 @@ export function createWalk({ camera, canvas, data, joystickEl, knobEl }) {
     jump() { st.jumpReq = true; },
     takeLanding() { const l = st.landed; st.landed = false; return l; },
     get game() { return st.game; }, set game(v) { st.game = v; },
+    /** Indoor room the walker is in (null outdoors). Its floor height lifts the camera. */
+    get room() { return st.room; }, set room(r) { st.room = r; },
+    get floorY() { return st.room ? st.room.y : 0; },
     get crouch() { return st.crouch; },
     set crouchBtn(v) { st.crouchBtn = v; }, get crouchBtn() { return st.crouchBtn; },
     get jy() { return st.jy; },

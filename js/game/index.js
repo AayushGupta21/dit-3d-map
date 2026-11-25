@@ -1,4 +1,4 @@
-// Multiplayer game (2–4 players) on the DIT campus. Players connect directly over WebRTC (PeerJS)
+// Multiplayer game (2 or more players, no cap) on the DIT campus. Players connect directly over WebRTC (PeerJS)
 // when their networks allow it, and through a Supabase Realtime relay when they don't (mobile data,
 // strict wifi). Each connection is a "link" with send(); the game doesn't care which kind it is.
 //
@@ -14,6 +14,7 @@ import { WEAPONS, falloff, createViewModel } from "./weapons.js";
 import { makeAvatar } from "./avatar.js";
 import { createHUD, createMinimap, COLORS, TEAM_COLORS } from "./hud.js";
 import { createRelay, relayConfigured } from "./relay.js";
+import { createHideouts } from "./hideouts.js";
 
 const MODES = {
   dm: { name: "Shootout", team: false, time: 300e3, target: 10,
@@ -21,15 +22,15 @@ const MODES = {
   tdm: { name: "Team Deathmatch", team: true, time: 300e3, target: 25,
     info: "Red vs Blue. First team to 25 takedowns, or the most after 5 minutes. No friendly fire." },
   ctf: { name: "Capture the Flag", team: true, time: 480e3, target: 3,
-    info: "Red base: Chanakya Flag Lawn. Blue base: Boys Hostel Sports Ground. Grab their flag and bring it home while yours is safe. First to 3." },
+    info: "Red base: Chanakya Flag Lawn. Blue base: Boys Hostel Sports Ground. Walk up to the enemy flag and press E (on phones tap ✋) to take it, then run into your own ring to score. Your own flag must be at home to score. If your flag is dropped, press E next to it to send it home. First to 3." },
   hs: { name: "Hide & Seek", team: false, hide: 30e3, time: 180e3,
-    info: "One seeker counts to 30 while everyone hides. The seeker gets a radar ping every 30 s. One shot finds a hider, who then joins the seekers. Hiders: press T to taunt for points." },
+    info: "One seeker counts to 30 while everyone hides. Glowing green doors on some hostels lead to secret rooms on the upper floors (press E or tap ✋); which hostels are open changes every round. The seeker gets a radar ping every 30 s. One shot finds a hider, who then joins the seekers. Hiders: press T to taunt for points." },
 };
-const MAX_PLAYERS = 4, TICK = 50, INTERP = 100, RESPAWN = 3000, PROTECT = 2000, OVER_TIME = 9000;
+const MAX_PLAYERS = Infinity, TICK = 50, INTERP = 100, RESPAWN = 3000, PROTECT = 2000, OVER_TIME = 9000;
 const PEERJS = ["https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js", "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"];
 const ROOM_PREFIX = "dit3d-r2-";
 const SURF = ["none", "brick", "concrete", "metal", "ground", "player"];
-const DEFAULT_NAMES = ["Red", "Blue", "Green", "Yellow"];
+const DEFAULT_NAMES = ["Red", "Blue", "Green", "Yellow", "Purple", "Orange", "Pink", "Cyan"];
 
 const clean = (s) => String(s || "").replace(/[<>&"']/g, "").trim().slice(0, 14);
 const fmt = (ms) => { const s = Math.ceil(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
@@ -102,9 +103,25 @@ export function createGame(ctx) {
     }
     return [best[0], best[1], Math.random() * Math.PI * 2];
   }
+  /** A spot 12–25 m from where someone went down, but not right next to an enemy. */
+  function nearSpot(at, enemies) {
+    let best = null, bs = -Infinity;
+    for (let k = 0; k < 18; k++) {
+      const a = Math.random() * Math.PI * 2, r = 12 + Math.random() * 13;
+      const o = walk.findOpen(at[0] + Math.cos(a) * r, at[1] + Math.sin(a) * r, 2.5);
+      if (!inCampus(o)) continue;
+      const e = enemies.length ? Math.min(...enemies.map((q) => Math.hypot(q[0] - o[0], q[1] - o[1]))) : 30;
+      const dAt = Math.hypot(o[0] - at[0], o[1] - at[1]);
+      const sc = (e < 10 ? e - 100 : Math.min(e, 16)) - dAt * 0.2;
+      if (sc > bs) { bs = sc; best = o; }
+    }
+    if (!best) return pickSpot(enemies, at, 60);
+    // face roughly towards where the action was
+    return [best[0], best[1], Math.atan2(-(at[0] - best[0]), at[1] - best[1])];
+  }
   function ringSpot(c, i) {
-    const a = i * Math.PI / 2;
-    const p = walk.findOpen(c[0] + Math.cos(a) * 3, c[1] + Math.sin(a) * 3, 2);
+    const a = i * 2.4, r = 3 + Math.floor(i / 4) * 1.6; // spiral out so big games don't stack up
+    const p = walk.findOpen(c[0] + Math.cos(a) * r, c[1] + Math.sin(a) * r, 2);
     return [p[0], p[1], a + Math.PI / 2];
   }
 
@@ -136,6 +153,8 @@ export function createGame(ctx) {
   }
   /** World hit along a ray: buildings, boundary wall, ground. */
   function worldHit(o, d, far) {
+    const rm = hide && hide.roomAt(o.x, o.y, o.z);
+    if (rm) { const r = hide.rayRoom(o, d, rm); return r && r.t < far ? r : null; }
     ray.set(o, d); ray.far = far;
     let best = null;
     const h = ray.intersectObjects(world.pickables, true)[0];
@@ -165,12 +184,12 @@ export function createGame(ctx) {
   let relay = null, hostLink = null, lastHeard = 0;
   const conns = new Map();   // host: player id -> link ({ kind, open, send, close })
   let G = null, endLocal = 0, lastPhase = null, offset = 0, offsetSamples = [];
-  const buf = new Map();      // id -> [{T, s:[x, y, jy, yaw, pitch, flags]}]
+  const buf = new Map();      // id -> [{T, s:[x, y, jy, yaw, pitch, flags, floorY]}]
   const avatars = new Map();
   let H = null, respawns = [], timers = [];
   const now = () => performance.now();
   const hostNow = () => (isHost ? now() : now() + offset);
-  let fx = null, vm = null, mini = null;
+  let fx = null, vm = null, mini = null, hide = null;
 
   // local player
   const me = () => (G && G.players[myId]) || null;
@@ -197,8 +216,10 @@ export function createGame(ctx) {
     for (let i = a.length - 2; i >= 0; i--) {
       if (a[i].T <= T) {
         const p = a[i], q = a[i + 1], k = (T - p.T) / (q.T - p.T || 1);
+        // a jump through a stair door: don't slide through the wall
+        if ((p.s[6] || 0) !== (q.s[6] || 0) || Math.abs(q.s[0] - p.s[0]) + Math.abs(q.s[1] - p.s[1]) > 6) return k < 0.5 ? p.s : q.s;
         return [p.s[0] + (q.s[0] - p.s[0]) * k, p.s[1] + (q.s[1] - p.s[1]) * k, p.s[2] + (q.s[2] - p.s[2]) * k,
-          p.s[3] + angDiff(q.s[3], p.s[3]) * k, p.s[4] + (q.s[4] - p.s[4]) * k, k < 0.5 ? p.s[5] : q.s[5]];
+          p.s[3] + angDiff(q.s[3], p.s[3]) * k, p.s[4] + (q.s[4] - p.s[4]) * k, k < 0.5 ? p.s[5] : q.s[5], p.s[6] || 0];
       }
     }
     return last.s;
@@ -231,7 +252,7 @@ export function createGame(ctx) {
     const used = new Set(Object.values(H.players).map((p) => p.slot));
     let slot = 0; while (used.has(slot)) slot++;
     const reds = Object.values(H.players).filter((p) => p.team === "r").length, blues = Object.values(H.players).length - reds;
-    H.players[id] = { name: clean(name) || DEFAULT_NAMES[slot], slot, net: id === myId ? "host" : (conns.get(id) || {}).kind || "p2p", team: reds <= blues ? "r" : "b", hp: 100, score: 0, kills: 0, deaths: 0,
+    H.players[id] = { name: clean(name) || DEFAULT_NAMES[slot] || `Player ${slot + 1}`, slot, net: id === myId ? "host" : (conns.get(id) || {}).kind || "p2p", team: reds <= blues ? "r" : "b", hp: 100, score: 0, kills: 0, deaths: 0,
       role: H.mode === "hs" && H.phase !== "lobby" ? "seeker" : "", alive: true, prot: 0, carry: null, lastShot: 0, tauntT: 0 };
   }
   function pushG() {
@@ -242,7 +263,7 @@ export function createGame(ctx) {
         role: p.role, alive: p.alive, prot: p.prot > t, carry: p.carry };
     }
     const flags = H.flags ? { r: { ...H.flags.r }, b: { ...H.flags.b } } : null;
-    bc({ t: "g", g: { mode: H.mode, phase: H.phase, rem: Math.max(0, H.end - t), msg: H.msg, ts: H.ts, players, flags } });
+    bc({ t: "g", g: { mode: H.mode, phase: H.phase, rem: Math.max(0, H.end - t), msg: H.msg, ts: H.ts, players, flags, hs: H.mode === "hs" && H.phase !== "lobby" ? H.hs : 0 } });
   }
   const feed = (text) => bc({ t: "ev", text });
   function sendSpawn(id, s) {
@@ -251,9 +272,11 @@ export function createGame(ctx) {
   }
   const others = (id) => Object.keys(H.players).filter((k) => k !== id).map(latest).filter(Boolean);
   const enemiesOf = (id) => Object.keys(H.players).filter((k) => k !== id && (!MODES[H.mode].team || H.players[k].team !== H.players[id].team)).map(latest).filter(Boolean);
-  function spawnFor(id) {
+  function spawnFor(id, near) {
     const P = H.players[id];
     if (H.mode === "hs") return H.phase === "lobby" ? pickSpot(others(id), BASES.r, 25) : ringSpot(BASES.r, P.slot);
+    if (H.mode === "ctf" && H.phase !== "lobby") return pickSpot(enemiesOf(id), BASES[P.team], 22);
+    if (near) return nearSpot(near, enemiesOf(id));
     if (MODES[H.mode].team && H.phase !== "lobby") return pickSpot(enemiesOf(id), BASES[P.team], 45);
     return pickSpot(others(id));
   }
@@ -272,6 +295,7 @@ export function createGame(ctx) {
     if (m.t === "pi") { const c = conns.get(id); if (c && c.open) c.send({ t: "po", c: m.c, T: now() }); return; }
     const P = H.players[id];
     if (!P) return;
+    if (m.t === "act") { if (H.mode === "ctf" && H.phase === "play") ctfAct(id); return; }
     if (m.t === "st") {
       if (P.alive) pushState(id, now(), m.s);
     } else if (m.t === "sh") hostShot(id, P, m);
@@ -313,11 +337,11 @@ export function createGame(ctx) {
   function checkHit(sid, vid, T, pt, head, w) {
     const ts = sample(vid, T), ss = latest(sid);
     if (!ts || !ss) return null;
-    const [tx, ty, tjy, , , fl] = ts, crouch = fl & 1;
+    const [tx, ty, tjy0, , , fl, tfy] = ts, crouch = fl & 1, tjy = tjy0 + (tfy || 0);
     if (Math.hypot(pt[0] - tx, -pt[2] - ty) > 1.0) return null;
     const feet = 0.1 + tjy, top = feet + (crouch ? 1.3 : 1.9);
     if (pt[1] < feet - 0.2 || pt[1] > top + 0.3) return null;
-    const eye = new THREE.Vector3(ss[0], (ss[5] & 1 ? 1.12 : 1.7) + ss[2], -ss[1]);
+    const eye = new THREE.Vector3(ss[0], (ss[5] & 1 ? 1.12 : 1.7) + ss[2] + (ss[6] || 0), -ss[1]);
     const p = new THREE.Vector3(pt[0], pt[1], pt[2]);
     const dist = eye.distanceTo(p);
     if (dist > w.range + 10) return null;
@@ -342,7 +366,8 @@ export function createGame(ctx) {
     if (MODES[H.mode].team) H.ts[A.team]++;
     feed(`${A.name} ⟶ ${V.name} · ${WEAPONS[wi].name}${head ? " · headshot" : ""}`);
     dropFlag(vid);
-    respawns.push({ id: vid, at: now() + RESPAWN });
+    const ds = latest(vid);
+    respawns.push({ id: vid, at: now() + RESPAWN, near: ds ? [ds[0], ds[1]] : null });
     const target = MODES[H.mode].target;
     if (H.mode === "dm" && A.score >= target) endRound();
     if (H.mode === "tdm" && H.ts[A.team] >= target) endRound();
@@ -375,7 +400,7 @@ export function createGame(ctx) {
     if (H.mode === "hs") {
       const seeker = ids[Math.floor(Math.random() * ids.length)];
       for (const id of ids) { H.players[id].role = id === seeker ? "seeker" : "hider"; H.players[id].prot = 0; }
-      H.phase = "hide"; H.end = now() + mode.hide; H.nextPing = 0;
+      H.phase = "hide"; H.end = now() + mode.hide; H.nextPing = 0; H.hs = 1 + Math.floor(Math.random() * 1e9);
       feed(`${H.players[seeker].name} is the seeker. Everyone else: hide!`);
     } else {
       H.phase = "play"; H.end = now() + mode.time;
@@ -419,7 +444,7 @@ export function createGame(ctx) {
       if (t < r.at) { respawns.push(r); continue; }
       const P = H.players[r.id]; if (!P) continue;
       P.alive = true; P.hp = 100; P.prot = t + PROTECT;
-      sendSpawn(r.id, spawnFor(r.id));
+      sendSpawn(r.id, spawnFor(r.id, r.near));
       pushG();
     }
     if (H.phase === "play" && H.mode === "ctf") ctfTick(t);
@@ -458,10 +483,7 @@ export function createGame(ctx) {
       for (const team of ["r", "b"]) {
         const f = H.flags[team];
         if (f.carrier) continue;
-        const d = Math.hypot(s[0] - f.x, s[1] - f.y);
-        if (d > 2.6) continue;
-        if (team !== P.team && !P.carry) { f.carrier = id; f.home = false; P.carry = team; feed(`${P.name} took the ${team === "r" ? "red" : "blue"} flag!`); bc({ t: "flag", ev: "take", team, id }); changed = true; }
-        else if (team === P.team && !f.home) { Object.assign(f, { x: BASES[team][0], y: BASES[team][1], home: true, dropT: 0 }); feed(`${P.name} returned the ${team === "r" ? "red" : "blue"} flag`); bc({ t: "flag", ev: "ret", team, id }); changed = true; }
+        // taking or returning a flag needs the use button (see ctfAct); here we only hint
       }
       if (P.carry && H.flags[P.team].home && Math.hypot(s[0] - BASES[P.team][0], s[1] - BASES[P.team][1]) < 4.5) {
         const f = H.flags[P.carry];
@@ -479,6 +501,17 @@ export function createGame(ctx) {
       if (!f.home && !f.carrier && f.dropT && t - f.dropT > 20000) { Object.assign(f, { x: BASES[team][0], y: BASES[team][1], home: true, dropT: 0 }); feed(`The ${team === "r" ? "red" : "blue"} flag went home`); changed = true; }
     }
     if (changed || hostTick.n % 10 === 0) pushG();
+  }
+  /** A player pressed E / ✋ in Capture the Flag: take the enemy flag or send ours home. */
+  function ctfAct(id) {
+    const P = H.players[id], s = latest(id);
+    if (!P || !P.alive || !s || !H.flags) return;
+    for (const team of ["r", "b"]) {
+      const f = H.flags[team];
+      if (f.carrier || Math.hypot(s[0] - f.x, s[1] - f.y) > 3.8) continue;
+      if (team !== P.team && !P.carry) { f.carrier = id; f.home = false; P.carry = team; feed(`${P.name} took the ${team === "r" ? "red" : "blue"} flag!`); bc({ t: "flag", ev: "take", team, id }); pushG(); return; }
+      if (team === P.team && !f.home) { Object.assign(f, { x: BASES[team][0], y: BASES[team][1], home: true, dropT: 0 }); feed(`${P.name} returned the ${team === "r" ? "red" : "blue"} flag`); bc({ t: "flag", ev: "ret", team, id }); pushG(); return; }
+    }
   }
   function hostDrop(id) {
     const link = conns.get(id);
@@ -530,7 +563,7 @@ export function createGame(ctx) {
       }
       case "sp": {
         if (m.id === myId) {
-          walk.setPos(m.x, m.y, m.yaw); L.prev = [m.x, m.y];
+          walk.room = null; walk.setPos(m.x, m.y, m.yaw); L.prev = [m.x, m.y];
           resetAmmo(); L.stamina = 1; L.bloom = 0;
         } else { buf.delete(m.id); pushState(m.id, hostNow() - INTERP - 1, [m.x, m.y, 0, m.yaw, 0, 0]); }
         break;
@@ -556,7 +589,7 @@ export function createGame(ctx) {
         else audio.flag(m.ev === "take" ? !mine : mine);
         break;
       }
-      case "full": toast("That room is full (4 players max)."); leave(); break;
+      case "full": toast("That room is full."); leave(); break;
       case "who": if (!isHost && hostLink) hostLink.send({ t: "hello", name: clean($("gmName").value) }); break;
     }
   }
@@ -586,7 +619,10 @@ export function createGame(ctx) {
     const M = me();
     if (G.phase !== lastPhase) {
       if (G.phase === "lobby") { audio.music("lobby"); if (lastPhase === "over") resetAmmo(); }
-      if (G.phase === "play" && G.mode !== "hs") { audio.music("fight"); hud.big(MODES[G.mode].name + "!"); resetAmmo(); }
+      if (G.phase === "play" && G.mode !== "hs") {
+        audio.music("fight"); resetAmmo();
+        hud.big(G.mode === "ctf" ? `Capture the Flag! Go to the ${M && M.team === "r" ? "blue" : "red"} flag and ${isTouch ? "tap ✋" : "press E"} to take it` : MODES[G.mode].name + "!", G.mode === "ctf" ? 4000 : 2200);
+      }
       if (G.phase === "hide") { audio.music("hide"); resetAmmo(); hud.big(M && M.role === "seeker" ? "You're the seeker! Counting to 30…" : "Hide! The seeker comes in 30 seconds.", 3500); }
       if (G.phase === "play" && G.mode === "hs") { audio.horn(); hud.big(M && M.role === "seeker" ? "Go find them!" : "Here comes the seeker. Stay hidden!"); }
       if (G.phase === "over") {
@@ -597,18 +633,56 @@ export function createGame(ctx) {
       lastPhase = G.phase;
     }
     if (prev && M && prev.players[myId] && !prev.players[myId].alive && M.alive) $("gmDown").hidden = true;
+    if (hide) hide.setOpen(G.mode === "hs" ? G.hs || 0 : null);
     hud.lobby(G, { code, myId, isHost, modes: MODES, maxPlayers: MAX_PLAYERS });
     hud.teamScore(G);
     for (const [id, a] of avatars) if (!G.players[id]) { scene.remove(a.g); a.dispose(); avatars.delete(id); buf.delete(id); }
-    const fs = $("gmFlagSt");
-    fs.hidden = !(G.mode === "ctf" && G.flags && G.phase === "play");
-    if (!fs.hidden && M) {
-      const mine = G.flags[M.team], theirs = G.flags[M.team === "r" ? "b" : "r"];
-      fs.textContent = M.carry ? "You have their flag! Bring it to your base." :
-        !mine.home ? (mine.carrier ? `${nameOf(mine.carrier)} has your flag!` : "Your flag is dropped. Touch it to return it.") :
-          theirs.carrier ? `${nameOf(theirs.carrier)} has their flag` : "Steal their flag and bring it home";
-    }
+    flagStatus();
   }
+  // ---------- Capture the Flag guide: what to do next, with a direction arrow ----------
+  const ARROWS = ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖"];
+  function arrowTo(x, y) {
+    const p = walk.pos, d = Math.hypot(x - p[0], y - p[1]);
+    if (d < 3) return "· here";
+    const rel = -angDiff(Math.atan2(-(x - p[0]), y - p[1]), walk.yaw);
+    return `${ARROWS[((Math.round(rel / (Math.PI / 4)) % 8) + 8) % 8]} ${Math.round(d)} m`;
+  }
+  function flagStatus() {
+    const fs = $("gmFlagSt"), M = me();
+    fs.hidden = !(G && G.mode === "ctf" && G.flags && G.phase === "play" && M);
+    if (fs.hidden) return;
+    const use = isTouch ? "tap ✋" : "press E";
+    const mt = M.team, et = mt === "r" ? "b" : "r", mc = mt === "r" ? "red" : "blue", ec = et === "r" ? "red" : "blue";
+    const mine = G.flags[mt], theirs = G.flags[et];
+    const atHome = Math.hypot(walk.pos[0] - BASES[mt][0], walk.pos[1] - BASES[mt][1]) < 20;
+    let txt;
+    if (M.carry) txt = mine.home ? `You have the ${ec} flag! Run into your ${mc} ring to score ${arrowTo(BASES[mt][0], BASES[mt][1])}`
+      : `You have their flag, but yours is gone. Get your ${mc} flag back first ${arrowTo(mine.x, mine.y)}`;
+    else if (mine.carrier) txt = `${nameOf(mine.carrier)} stole your flag! Shoot them to drop it ${arrowTo(mine.x, mine.y)}`;
+    else if (!mine.home) txt = `Your flag is on the ground. Walk to it and ${use} to send it home ${arrowTo(mine.x, mine.y)}`;
+    else if (theirs.carrier) txt = `${nameOf(theirs.carrier)} has the ${ec} flag. Cover them on the way home!`;
+    else if (atHome) txt = `Guarding your ${mc} flag: shoot anyone who grabs it. Enemy flag ${arrowTo(theirs.x, theirs.y)}`;
+    else txt = `Go to the ${ec} flag and ${use} to take it ${arrowTo(theirs.x, theirs.y)}`;
+    if (fs.textContent !== txt) fs.textContent = txt;
+  }
+  // ---------- use button (E / ✋): flags, hostel stairs ----------
+  function currentAction() {
+    const M = me();
+    if (!G || !M || !M.alive || walk.frozen) return null;
+    if (hide && (walk.room || G.mode === "hs")) {
+      const a = hide.actionAt(walk.pos);
+      if (a) return { label: a.label, run: () => { const where = a.go(); L.prev = [walk.pos[0], walk.pos[1]]; audio.swap(); if (where) hud.big(where, 1400); } };
+    }
+    if (G.mode === "ctf" && G.phase === "play" && G.flags) {
+      const p = walk.pos, et = M.team === "r" ? "b" : "r";
+      const near = (f) => !f.carrier && Math.hypot(p[0] - f.x, p[1] - f.y) < 3.2;
+      if (!M.carry && near(G.flags[et])) return { label: `Take the ${et === "r" ? "red" : "blue"} flag`, run: () => toHost({ t: "act" }) };
+      const mine = G.flags[M.team];
+      if (!mine.home && near(mine)) return { label: "Return your flag", run: () => toHost({ t: "act" }) };
+    }
+    return null;
+  }
+  function useAction() { const a = currentAction(); if (a) a.run(); }
   function canShoot() {
     const M = me();
     if (!G || !M || !M.alive) return false;
@@ -738,6 +812,7 @@ export function createGame(ctx) {
     else if (k === "tab") { e.preventDefault(); L.boardKey = true; }
     else if (k === "t") toHost({ t: "taunt" });
     else if (k === "f") { L.trigger = true; L.semiLock = false; fire(); }
+    else if (k === "e" && !e.repeat) useAction();
   });
   addEventListener("keyup", (e) => {
     const k = e.key.toLowerCase();
@@ -758,6 +833,7 @@ export function createGame(ctx) {
   hold("gmSw", () => switchTo((L.w + 1) % WEAPONS.length));
   hold("gmTt", () => toHost({ t: "taunt" }));
   hold("gmSb", () => { L.boardKey = true; }, () => { L.boardKey = false; });
+  hold("gmUse", useAction);
 
   // ---------- per frame ----------
   let sendT = 0, miniT = 0;
@@ -846,7 +922,7 @@ export function createGame(ctx) {
     if (sendT >= (hostLink && hostLink.kind === "relay" ? 2 * TICK : TICK) / 1000) {
       sendT = 0;
       const fl = (walk.crouch ? 1 : 0) | (L.ads ? 2 : 0) | (walk.running ? 4 : 0) | (L.w << 4);
-      const s = [r2(p[0]), r2(p[1]), r2(walk.jy), Math.round(yaw * 1000) / 1000, Math.round(pitch * 1000) / 1000, fl];
+      const s = [r2(p[0]), r2(p[1]), r2(walk.jy), Math.round(yaw * 1000) / 1000, Math.round(pitch * 1000) / 1000, fl, r2(walk.floorY)];
       if (isHost) { if (alive) pushState(myId, t, s); } else toHost({ t: "st", s });
     }
 
@@ -872,14 +948,15 @@ export function createGame(ctx) {
         if (wi !== a.wi) { a.wi = wi; a.setWeapon(WEAPONS[wi].id); }
         const sp = a.last ? Math.hypot(s[0] - a.last[0], s[1] - a.last[1]) / Math.max(dt, 1e-3) : 0;
         a.last = [s[0], s[1]];
-        a.g.position.set(s[0], 0.1, -s[1]);
+        a.g.position.set(s[0], 0, -s[1]);
         a.g.rotation.y = s[3];
         a.seeker = G.mode === "hs" && P.role === "seeker" && G.phase !== "lobby";
         a.protected = !!P.prot;
         const stepped = a.update(dt, { speed: sp, running: !!(s[5] & 4), crouch: !!(s[5] & 1), jy: s[2], pitch: s[4], aiming: !!(s[5] & 2), down: !P.alive });
+        a.g.position.y += s[6] || 0; // hostel floor rooms
         if (stepped && !(s[5] & 1)) {
           const d = Math.hypot(s[0] - walk.pos[0], s[1] - walk.pos[1]);
-          if (d < 35) audio.footstep(v3.set(s[0], 0.2, -s[1]).clone(), { run: !!(s[5] & 4) });
+          if (d < 35 && (s[6] || 0) === walk.floorY) audio.footstep(v3.set(s[0], 0.2 + (s[6] || 0), -s[1]).clone(), { run: !!(s[5] & 4) });
         }
         const dist = Math.hypot(s[0] - walk.pos[0], s[1] - walk.pos[1]);
         const friend = teamMode() && M2 && P.team === M2.team;
@@ -931,6 +1008,12 @@ export function createGame(ctx) {
     if (L.radarAng != null) hud.radar(-angDiff(L.radarAng, yaw), false);
     if (L.radarAng != null && L.pings.length && t - L.pings[L.pings.length - 1].t < 100) hud.radar(-angDiff(L.radarAng, yaw), true);
     hud.board(G, myId, L.boardKey || L.showBoard);
+    const act = currentAction();
+    $("gmUse").hidden = !act;
+    if (act && $("gmUseT").textContent !== act.label) $("gmUseT").textContent = act.label;
+    if (hide) hide.update(dt);
+    L.flagT = (L.flagT || 0) - dt;
+    if (L.flagT <= 0) { L.flagT = 0.2; flagStatus(); }
     const hsMode = G && G.mode === "hs" && G.phase !== "lobby";
     $("gmFire").hidden = !isTouch || !canShoot();
     $("gmAds").hidden = !isTouch || !canShoot();
@@ -1118,6 +1201,7 @@ export function createGame(ctx) {
     if (!camera.parent) scene.add(camera);
     vm.set(L.w);
     mini = mini || createMinimap($("gmMini"), data);
+    hide = createHideouts({ scene, data, walk, inCampus });
     resetAmmo();
     hud.slots(WEAPONS, L.w);
     const a0 = Math.random() * Math.PI * 2;
@@ -1128,7 +1212,7 @@ export function createGame(ctx) {
     L.prev = [s[0], s[1]];
     $("gmAim").hidden = isTouch;
     $("gmKeys").textContent = isTouch ? "Joystick moves · drag to look · buttons on the right" :
-      "Click to aim · WASD move · Shift sprint · Space jump · C crouch · R reload · 1–4 or wheel: weapons · right-click: aim · Tab: scores · T: taunt";
+      "Click to aim · WASD move · Shift sprint · Space jump · C crouch · E use (flags, hostel stairs) · R reload · 1–4 or wheel: weapons · right-click: aim · Tab: scores · T: taunt";
     audio.music("lobby");
     timers.push(setInterval(() => { if (isHost) hostTick(); }, TICK));
     history.replaceState(null, "", location.pathname + location.search.replace(/([?&])room=[^&]*&?/, "$1").replace(/[?&]$/, ""));
@@ -1147,6 +1231,8 @@ export function createGame(ctx) {
     for (const fm of Object.values(flagMeshes)) if (fm.parent) fm.parent.remove(fm);
     if (fx) { fx.dispose(); fx = null; }
     if (vm) { vm.dispose(); vm = null; }
+    if (hide) { hide.dispose(); hide = null; }
+    walk.room = null;
     audio.stop();
     walk.frozen = false; L.trigger = false; L.ads = false; walk.crouchBtn = false;
     if (document.pointerLockElement) document.exitPointerLock();
@@ -1197,6 +1283,7 @@ export function createGame(ctx) {
   return {
     open, leave, update,
     get active() { return active; },
+    hide: () => hide,
     debug: () => ({ G, myId, isHost, code, L, offset, net: hostLink ? hostLink.kind : isHost ? [...conns].map(([i, c]) => i.slice(0, 6) + ":" + c.kind) : null, buf: [...buf.keys()], avatars: avatars.size,
       av: [...avatars].map(([id, a]) => ({ id, x: a.g.position.x, y: -a.g.position.z, vis: a.g.visible })) }),
   };

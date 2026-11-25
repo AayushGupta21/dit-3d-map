@@ -88,6 +88,11 @@ const CSS = `
 .gm-sw{right:22px;bottom:24px;width:72px;height:44px;border-radius:14px}
 .gm-tt{right:100px;bottom:24px;width:72px;height:44px;border-radius:14px}
 .gm-sb{right:14px;top:60px;width:auto;height:36px;padding:0 12px;border-radius:12px;font-size:12px}
+.gm-use{position:fixed;left:50%;bottom:150px;transform:translateX(-50%);z-index:6;display:flex;align-items:center;gap:10px;padding:10px 18px;font:600 15px system-ui,sans-serif;color:#fff;border:2px solid #3fe0a0;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;animation:gmUse 1.2s ease-in-out infinite}
+.gm-use kbd{display:inline-grid;place-items:center;min-width:28px;height:28px;border-radius:6px;background:#3fe0a0;color:#0b1a14;font:700 15px system-ui,sans-serif}
+.gm-use .gm-hand{display:none;font-size:20px}
+body.gm-touch .gm-use{bottom:auto;top:58%;padding:14px 20px;font-size:16px}body.gm-touch .gm-use kbd{display:none}body.gm-touch .gm-use .gm-hand{display:inline}
+@keyframes gmUse{50%{box-shadow:0 0 0 6px rgba(63,224,160,.25)}}
 body.gaming .crosshair,body.gaming .walkexit,body.gaming .info,body.gaming .walkhint,body.gaming #labels{display:none!important}
 body.gaming:not(.gm-touch) .joystick{display:none}
 body.gm-touch .gm-right{right:auto;left:50%;transform:translateX(-50%);bottom:12px;text-align:center;padding:6px 12px;min-width:0}
@@ -104,7 +109,7 @@ const HTML = `
 <section id="gmStart" class="gm-modal" hidden><div class="gm-card gm-start">
   <button class="iconbtn gm-x" id="gmClose" aria-label="Close">×</button>
   <h2>Play with friends</h2>
-  <p class="gm-muted" style="font-size:13px">2 to 4 players, each in their own browser, anywhere on campus. Shootout, Team Deathmatch, Capture the Flag or Hide &amp; Seek.</p>
+  <p class="gm-muted" style="font-size:13px">Any number of players, each in their own browser, anywhere on campus. Shootout, Team Deathmatch, Capture the Flag or Hide &amp; Seek.</p>
   <label class="gm-field">Your name<input id="gmName" maxlength="14" placeholder="e.g. Aayush" autocomplete="nickname" /></label>
   <button class="pill accent gm-big-btn" id="gmCreate">Create a room</button>
   <div class="gm-or">or join a friend</div>
@@ -157,6 +162,7 @@ const HTML = `
   <button class="gm-tb gm-sw" id="gmSw" hidden>SWAP</button>
   <button class="gm-tb gm-tt" id="gmTt" hidden>TAUNT</button>
   <button class="gm-tb gm-sb" id="gmSb" hidden>Scores</button>
+  <button class="gm-card gm-use" id="gmUse" hidden><kbd>E</kbd><span class="gm-hand">✋</span><span id="gmUseT"></span></button>
 </div>
 <div class="gm-card gm-board" id="gmBoard" hidden></div>
 <div class="gm-card gm-set" id="gmSet" hidden>
@@ -173,7 +179,9 @@ const HTML = `
 <div id="gmBlind" class="gm-blind" hidden><div><p>You're the seeker</p><b id="gmBlindT">30</b><p class="gm-muted" style="font-size:15px">Everyone else is hiding…</p></div></div>
 `;
 
-export const COLORS = ["#e5483b", "#3b82f6", "#22c55e", "#f5b800"];
+const BASE_COLORS = ["#e5483b", "#3b82f6", "#22c55e", "#f5b800", "#a855f7", "#f97316", "#ec4899", "#06b6d4"];
+/** Player colours by slot: 8 fixed ones, then evenly spread hues for any number of players. */
+export const COLORS = new Proxy(BASE_COLORS, { get: (t, k) => (typeof k === "string" && /^\d+$/.test(k) && +k >= t.length ? `hsl(${(+k * 137.5) % 360} 70% 55%)` : t[k]) });
 export const TEAM_COLORS = { r: "#e5483b", b: "#3b82f6" };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -248,7 +256,7 @@ export function createHUD() {
       $("gmPlayers").innerHTML = ids.map((id) => {
         const p = G.players[id];
         return `<li><span class="gm-dot" style="background:${COLORS[p.slot]}"></span>${esc(p.name)}${id === myId ? " <span class='gm-muted'>(you)</span>" : ""}${isHost && id === myId ? " <span class='gm-muted'>· host</span>" : ""}${p.net === "relay" ? " <span class='gm-muted'>· via relay</span>" : ""}${team ? ` <span class="gm-team ${p.team}">${p.team === "r" ? "RED" : "BLUE"}</span>` : ""}</li>`;
-      }).join("") + (ids.length < maxPlayers ? `<li class="gm-muted">${maxPlayers - ids.length} more can join</li>` : "");
+      }).join("") + (ids.length < maxPlayers ? `<li class="gm-muted">${isFinite(maxPlayers) ? `${maxPlayers - ids.length} more can join` : "Anyone with the link can join"}</li>` : "");
       for (const b of $("gmModes").children) { b.classList.toggle("on", b.dataset.mode === G.mode); b.disabled = !isHost; }
       $("gmModeInfo").textContent = modes[G.mode].info;
       $("gmStartBtn").hidden = !isHost;

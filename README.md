@@ -50,7 +50,7 @@ Run `npm run build` again after any change to `js/`, `css/` or `data/`.
 
 ## Multiplayer (🎮 Play)
 
-2 to 4 players, each in their own browser. One person presses **Play → Create a room** and shares the 5-letter code or the invite link; the others join with it. While waiting in the lobby you can walk around and try the guns.
+Any number of players (2 or more), each in their own browser. The host's connection carries everyone, so very big games (10+) play best when the host is on good wifi. One person presses **Play → Create a room** and shares the 5-letter code or the invite link; the others join with it. While waiting in the lobby you can walk around and try the guns.
 
 **Modes**
 - **Shootout:** everyone for themselves. Most takedowns in 5 minutes wins, or first to 10.
@@ -81,3 +81,5 @@ Run `npm run build` again after any change to `js/`, `css/` or `data/`.
 - **Host authority:** the room creator's tab is the host. It owns health, scores, timers and flags. It checks every hit with lag compensation (where the target really was when the shooter fired, line of sight, range and fire rate). Other players are drawn 100 ms in the past and interpolated, so movement looks smooth.
 - **Sound:** every sound and the music for each mode are synthesized with the Web Audio API, so there are no audio files to download. Shots and footsteps come from where they happen, and walls muffle them.
 - **Settings (⚙):** look speed, field of view, volumes, invert Y and low graphics.
+
+**Use button (E, or ✋ on phones):** take the enemy flag or send your dropped flag home in Capture the Flag, and use the glowing green stair doors on hostels in Hide & Seek. Those doors lead to hidden rooms on floors 1–3; five random hostels are open each round. In Shootout and Team Deathmatch you come back 12–25 m from where you went down, away from enemies.
