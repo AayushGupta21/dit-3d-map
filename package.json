@@ -1,0 +1,14 @@
+{
+  "name": "dit-3d-map",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "data": "python3 tools/build.py",
+    "build": "node tools/build_web.mjs",
+    "dev": "python3 tools/serve.py 5173"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0",
+    "three": "0.160.0"
+  }
+}

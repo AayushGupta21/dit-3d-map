@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>DIT University in 3D</title>
+  <meta name="description" content="Interactive 3D map of DIT University, Dehradun: find blocks, hostels and food, get walking directions, and watch the campus change with the time of day, weather and seasons." />
+  <meta name="theme-color" content="#121a26" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="css/map.css?v=1795612424" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+  <div id="labels" class="labels"></div>
+
+  <div id="loading" class="loading"><div class="spinner"></div><p>Building DIT…</p></div>
+
+  <!-- Title -->
+  <header class="card title">
+    <h1>DIT University <span>in 3D</span></h1>
+    <p>Dehradun · <button class="link" id="btnAbout">About</button></p>
+  </header>
+
+  <!-- Search + chips -->
+  <section class="searchwrap">
+    <div class="card search">
+      <svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search blocks, hostels, food…" autocomplete="off" aria-label="Search places" />
+      <button id="btnDirections" class="iconbtn accent" title="Directions" aria-label="Directions">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M12 2 22 12 12 22 2 12z"/><path d="M9 14v-2a2 2 0 0 1 2-2h4m-2-2 2 2-2 2"/></svg>
+      </button>
+    </div>
+    <ul id="results" class="card results" hidden></ul>
+    <div class="chips" id="chips"></div>
+  </section>
+
+  <!-- Directions panel -->
+  <section id="dirPanel" class="card dirpanel" hidden>
+    <div class="dirhead"><b>Walking directions</b><button class="iconbtn" id="dirClose" aria-label="Close">×</button></div>
+    <label>From<select id="dirFrom"></select></label>
+    <label>To<select id="dirTo"></select></label>
+    <div class="row"><button class="pill accent" id="dirGo">Show route</button><button class="pill" id="dirSwap">Swap</button></div>
+    <p id="dirInfo" class="muted"></p>
+  </section>
+
+  <!-- Info card -->
+  <aside id="info" class="card info" hidden>
+    <button class="iconbtn close" id="infoClose" aria-label="Close">×</button>
+    <div class="cat" id="infoCat"></div>
+    <h2 id="infoName"></h2>
+    <p id="infoMeta" class="muted"></p>
+    <p id="infoNote" class="note" hidden>Name not confirmed yet. If you know this building, edit <code>data/buildings.json</code>.</p>
+    <div class="row">
+      <button class="pill" id="infoFrom">Directions from</button>
+      <button class="pill accent" id="infoTo">Directions to</button>
+    </div>
+    <div class="row">
+      <button class="pill" id="infoWalk">Walk here</button>
+      <button class="pill" id="infoPhoto">See real photo 3D</button>
+      <a class="pill" id="infoGmaps" target="_blank" rel="noopener">Open in Google Maps</a>
+    </div>
+  </aside>
+
+  <!-- Time / weather / season panel -->
+  <section id="timePanel" class="card timepanel" hidden>
+    <div class="tphead">
+      <div><div class="bigtime" id="tpTime">--:--</div><div class="muted" id="tpSun"></div></div>
+      <button class="pill live on" id="tpLive">● Live</button>
+    </div>
+    <input type="range" id="tpSlider" min="0" max="1439" step="1" aria-label="Time of day" />
+    <div class="ticks muted"><span>12 AM</span><span>6 AM</span><span>Noon</span><span>6 PM</span><span>12 AM</span></div>
+    <div class="row" id="tpPresets">
+      <button class="pill" data-preset="sunrise">Sunrise</button>
+      <button class="pill" data-preset="noon">Noon</button>
+      <button class="pill" data-preset="golden">Golden hour</button>
+      <button class="pill" data-preset="sunset">Sunset</button>
+      <button class="pill" data-preset="night">Night</button>
+    </div>
+    <div class="sect muted">WEATHER</div>
+    <div class="row" id="tpWeather">
+      <button class="pill on" data-weather="clear">Clear</button>
+      <button class="pill" data-weather="cloudy">Cloudy</button>
+      <button class="pill" data-weather="fog">Fog</button>
+      <button class="pill" data-weather="rain">Rain</button>
+    </div>
+    <div class="sect muted">SEASON</div>
+    <div class="row" id="tpSeason">
+      <button class="pill on" data-season="auto">Auto</button>
+      <button class="pill" data-season="summer">Summer</button>
+      <button class="pill" data-season="monsoon">Monsoon</button>
+      <button class="pill" data-season="autumn">Autumn</button>
+      <button class="pill" data-season="winter">Winter</button>
+    </div>
+    <label class="toggle"><input type="checkbox" id="tpTraffic" /> Cars and people</label>
+    <label class="toggle"><input type="checkbox" id="tpLite" /> Lite mode (faster on old phones)</label>
+  </section>
+
+  <!-- Bottom toolbar -->
+  <nav class="toolbar">
+    <button class="card pill timepill" id="btnTime" aria-label="Time, weather and season"><span id="tbTime">--:--</span><i class="dot live" id="tbLive"></i></button>
+    <button class="card iconbtn round" id="btnWalk" title="Walk mode" aria-label="Walk mode">
+      <svg viewBox="0 0 24 24" class="ico"><circle cx="13" cy="4" r="2"/><path d="m9 21 2-6 3 3v3M7 12l3-4 4 1 2 4M11 15l-1-7"/></svg>
+    </button>
+    <button class="card iconbtn round" id="btnLocate" title="Show my location" aria-label="Show my location">
+      <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
+    </button>
+    <button class="card iconbtn round on" id="btnLabels" title="Toggle labels" aria-label="Toggle labels">
+      <svg viewBox="0 0 24 24" class="ico"><path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>
+    </button>
+    <button class="card iconbtn round" id="btnReset" title="Reset view" aria-label="Reset view">
+      <svg viewBox="0 0 24 24" class="ico"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/></svg>
+    </button>
+  </nav>
+
+  <nav class="zoombtns card">
+    <button class="iconbtn" id="btnZoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+    <button class="iconbtn" id="btnZoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+  </nav>
+
+  <nav class="sidebtns">
+    <button class="card pill play" id="btnPlay">🎮 Play</button>
+    <button class="card pill" id="btn2D">2D map</button>
+    <button class="card pill" id="btnPhoto">Photo 3D</button>
+    <button class="card pill" id="btnLock">Lock angle</button>
+  </nav>
+
+  <!-- Walk mode HUD -->
+  <div id="walkHud" hidden>
+    <button class="card pill walkexit" id="walkExit">✕ Exit walk</button>
+    <div class="card walkhint" id="walkHint"></div>
+    <div class="joystick" id="joystick" aria-label="Move joystick"><div class="knob" id="knob"></div></div>
+    <div class="crosshair"></div>
+  </div>
+
+  <!-- Multiplayer: start dialog -->
+  <section id="mpStart" class="modal" hidden>
+    <div class="card modalcard mpstart">
+      <button class="iconbtn close" id="mpClose" aria-label="Close">×</button>
+      <h2>Play with friends</h2>
+      <p class="muted">2 to 4 players, each in their own browser, anywhere on campus. Pick <b>Shootout</b> or <b>Hide &amp; Seek</b> once everyone is in.</p>
+      <label class="mpfield">Your name<input id="mpName" maxlength="14" placeholder="e.g. Aayush" autocomplete="nickname" /></label>
+      <button class="pill accent big" id="mpCreate">Create a room</button>
+      <div class="mpor muted">or join a friend</div>
+      <div class="mpjoin"><input id="mpJoinCode" maxlength="5" placeholder="Room code" autocomplete="off" autocapitalize="characters" /><button class="pill" id="mpJoin">Join</button></div>
+      <p class="muted small" id="mpStatus"></p>
+    </div>
+  </section>
+
+  <!-- Multiplayer: lobby + in-game HUD -->
+  <section id="mpLobby" class="card mplobby" hidden>
+    <div class="mphead"><div><span class="muted small">ROOM CODE</span><div class="mpcode" id="mpCode"></div></div><button class="pill" id="mpCopy">Copy invite link</button></div>
+    <ul class="mpplayers" id="mpPlayers"></ul>
+    <div class="row" id="mpModes"><button class="pill on" data-mode="dm">Shootout</button><button class="pill" data-mode="hs">Hide &amp; Seek</button></div>
+    <p class="muted small" id="mpModeInfo"></p>
+    <div class="row"><button class="pill accent" id="mpStartGame">Start game</button><button class="pill" id="mpLeave">Leave</button></div>
+    <p class="muted small" id="mpWait"></p>
+  </section>
+  <div id="mpHud" hidden>
+    <div class="card mptop" id="mpTimer">Lobby</div>
+    <div class="card mpscore" id="mpScore"></div>
+    <div class="mpfeed" id="mpFeed"></div>
+    <div class="mpbig" id="mpBig" hidden></div>
+    <div class="card mphp" id="mpHpBox" hidden><div class="mphpbar"><i id="mpHpFill"></i></div><span id="mpRole"></span></div>
+    <button class="mpfire" id="mpFire" hidden aria-label="Fire">FIRE</button>
+    <div class="mphit" id="mpHit"></div>
+    <div class="mpdmg" id="mpDmg"></div>
+    <div class="card mpaim" id="mpAim" hidden>Click the map to aim with your mouse</div>
+    <button class="card pill mpleave" id="mpLeaveBtn">Leave game</button>
+  </div>
+  <div id="mpBlind" class="mpblind" hidden><div><p>You're the seeker</p><b id="mpBlindT">30</b><p class="muted">Everyone else is hiding…</p></div></div>
+
+  <div class="hint card" id="hint">Drag to move · pinch or scroll to zoom · right-drag or two-finger twist to rotate</div>
+
+  <!-- Google 2D map overlay -->
+  <section id="gmapWrap" class="gmapwrap" hidden>
+    <div id="gmap"></div>
+    <button class="card pill back" id="gmapBack">← Back to 3D</button>
+  </section>
+
+  <!-- About -->
+  <section id="about" class="modal" hidden>
+    <div class="card modalcard">
+      <button class="iconbtn close" id="aboutClose" aria-label="Close">×</button>
+      <h2>DIT University in 3D</h2>
+      <p>An interactive map of the DIT campus that runs in your browser. Search for a block, get walking directions, and watch the campus change with the real time in Dehradun.</p>
+      <p class="muted">Building outlines were traced by hand from satellite imagery, so some names and heights are still guesses. Spot something wrong? Fix it in <code>data/buildings.json</code>.</p>
+      <p class="muted small" id="attrib"></p>
+    </div>
+  </section>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="config.js"></script>
+  <script src="data/campus.js?v=1795612424"></script>
+  <script type="module" src="js/main.js?v=1795612424"></script>
+</body>
+</html>

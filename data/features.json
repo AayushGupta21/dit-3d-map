@@ -1,0 +1,144 @@
+[
+ {
+  "id": "PARK",
+  "name": "Main Parking",
+  "cat": "other",
+  "kind": "parking",
+  "sub": "Big car park between Chanakya and VASTU",
+  "outline": [
+   [
+    30.3994049,
+    78.0759931
+   ],
+   [
+    30.399428,
+    78.0761272
+   ],
+   [
+    30.398734,
+    78.0763954
+   ],
+   [
+    30.3986646,
+    78.0763149
+   ],
+   [
+    30.3986646,
+    78.0759931
+   ],
+   [
+    30.3988265,
+    78.0759662
+   ]
+  ]
+ },
+ {
+  "id": "LAWN",
+  "name": "Chanakya Flag Lawn",
+  "cat": "sports",
+  "kind": "lawn",
+  "flag": true,
+  "sub": "Big lawn in front of Chanakya with the national flag \u00b7 flower beds and palms",
+  "outline": [
+   [
+    30.3990116,
+    78.0756068
+   ],
+   [
+    30.3991597,
+    78.0758321
+   ],
+   [
+    30.3991041,
+    78.0759501
+   ],
+   [
+    30.3987802,
+    78.0759287
+   ],
+   [
+    30.3987108,
+    78.0758321
+   ],
+   [
+    30.3987432,
+    78.0756283
+   ]
+  ]
+ },
+ {
+  "id": "SPORTS",
+  "name": "Boys Hostel Sports Ground",
+  "cat": "sports",
+  "kind": "field",
+  "sub": "Open ground with courts, cricket nets and event tents (BH 3:21)",
+  "outline": [
+   [
+    30.3969665,
+    78.0741262
+   ],
+   [
+    30.3970498,
+    78.0744374
+   ],
+   [
+    30.3968184,
+    78.0745983
+   ],
+   [
+    30.3967259,
+    78.0742872
+   ]
+  ]
+ },
+ {
+  "id": "COURT1",
+  "name": "Basketball Court 1",
+  "cat": "sports",
+  "kind": "court",
+  "sub": "Twin basketball courts beside the boys hostels",
+  "outline": [
+   [
+    30.3970451,
+    78.0738205
+   ],
+   [
+    30.3971978,
+    78.074035
+   ],
+   [
+    30.3971377,
+    78.0741316
+   ],
+   [
+    30.3969526,
+    78.0739117
+   ]
+  ]
+ },
+ {
+  "id": "COURT2",
+  "name": "Basketball Court 2",
+  "cat": "sports",
+  "kind": "court",
+  "sub": "Twin basketball courts beside the boys hostels",
+  "outline": [
+   [
+    30.3971006,
+    78.0737293
+   ],
+   [
+    30.3972533,
+    78.0739439
+   ],
+   [
+    30.3971978,
+    78.074035
+   ],
+   [
+    30.3970451,
+    78.0738205
+   ]
+  ]
+ }
+]

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>DIT Photo 3D</title>
+  <meta name="description" content="Interactive 3D map of DIT University, Dehradun" />
+  <meta name="theme-color" content="#0f1b2d" />
+  <link rel="stylesheet" href="photo3d.css" />
+</head>
+<body>
+  <div id="map3d" class="map"></div>
+  <div id="map2d" class="map" hidden></div>
+  <div id="mood" class="mood" data-mood="day"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">DIT</span>
+      <div>
+        <h1>DIT University in 3D</h1>
+        <p>Dehradun · Mussoorie Diversion Road</p>
+      </div>
+    </div>
+  </header>
+
+  <section class="panel" id="panel">
+    <div class="search">
+      <input id="q" type="search" placeholder="Search blocks, canteens, gates…" autocomplete="off" />
+      <ul id="results" class="results"></ul>
+    </div>
+
+    <div class="row">
+      <button id="btnHome" title="Back to campus overview">Campus</button>
+      <button id="btnTour" title="Orbit around campus">Tour</button>
+      <button id="btnView" title="Switch 3D / 2D">2D map</button>
+      <button id="btnDir" title="Directions between two places">Directions</button>
+    </div>
+
+    <div id="dirBox" class="dir" hidden>
+      <label>From <select id="dirFrom"></select></label>
+      <label>To <select id="dirTo"></select></label>
+      <div class="row">
+        <button id="btnRoute" class="primary">Show walking route</button>
+        <button id="btnClear">Clear</button>
+      </div>
+      <p id="dirInfo" class="muted"></p>
+    </div>
+
+    <div class="row moods">
+      <span class="muted">Mood</span>
+      <button data-mood="day" class="on">Day</button>
+      <button data-mood="golden">Golden hour</button>
+      <button data-mood="night">Night</button>
+      <button data-mood="fog">Fog</button>
+    </div>
+  </section>
+
+  <aside id="info" class="info" hidden>
+    <button id="infoClose" class="close" aria-label="Close">×</button>
+    <h2 id="infoTitle"></h2>
+    <p id="infoSub" class="muted"></p>
+    <div class="row">
+      <button id="infoFly" class="primary">Fly here</button>
+      <button id="infoFrom">Route from</button>
+      <button id="infoTo">Route to</button>
+    </div>
+  </aside>
+
+  <div id="msg" class="msg" hidden></div>
+
+  <script src="config.js"></script>
+  <script src="places.js"></script>
+  <script src="photo3d.js"></script>
+</body>
+</html>

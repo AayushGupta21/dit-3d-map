@@ -1,0 +1,8 @@
+config.js
+.DS_Store
+videos/
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.vercel/

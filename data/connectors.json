@@ -1,0 +1,210 @@
+[
+ {
+  "type": "bridge",
+  "name": "Visvesvaraya Skywalk",
+  "sub": "Covered footbridge over the loop road at Visvesvaraya's west end (NR 3:02)",
+  "deck": 7.5,
+  "covered": true,
+  "pts": [
+   [
+    30.3987617,
+    78.0745876
+   ],
+   [
+    30.3986877,
+    78.0744964
+   ],
+   [
+    30.3986044,
+    78.0743945
+   ]
+  ]
+ },
+ {
+  "type": "ramp",
+  "name": "Visvesvaraya stepped ramp",
+  "sub": "Switch-back stairs and ramps with steel rails (NR 1:40\u20132:10)",
+  "deck": 4,
+  "pts": [
+   [
+    30.3985859,
+    78.074491
+   ],
+   [
+    30.3986414,
+    78.0745769
+   ],
+   [
+    30.3986877,
+    78.074652
+   ],
+   [
+    30.3987432,
+    78.0747271
+   ]
+  ]
+ },
+ {
+  "type": "stairs",
+  "name": "Chanakya front steps",
+  "sub": "Main entrance steps facing the flag lawn (NR 3:06, 24:58)",
+  "pts": [
+   [
+    30.3986692,
+    78.0756068
+   ],
+   [
+    30.398697,
+    78.0756605
+   ]
+  ]
+ },
+ {
+  "type": "stairs",
+  "name": "Vedanta entrance ramp & steps",
+  "sub": "From the road to the Vedanta lobby (NR 7:10)",
+  "pts": [
+   [
+    30.3993817,
+    78.0765831
+   ],
+   [
+    30.3993355,
+    78.0765188
+   ]
+  ]
+ },
+ {
+  "type": "stairs",
+  "name": "Annapurna steps",
+  "sub": "Front stairs of the boys mess (BH 1:13)",
+  "pts": [
+   [
+    30.3976605,
+    78.0747271
+   ],
+   [
+    30.3977022,
+    78.0747271
+   ]
+  ]
+ },
+ {
+  "type": "stairs",
+  "name": "Charak courtyard stairs",
+  "sub": "Stairs up from the Charak courtyard (NR 17:26)",
+  "pts": [
+   [
+    30.3989885,
+    78.076449
+   ],
+   [
+    30.3990347,
+    78.0763954
+   ]
+  ]
+ },
+ {
+  "type": "stairs",
+  "name": "Gym & Tuck Shop stairs",
+  "sub": "Stairs down to the gym and tuck shop by the road (BH 4:25, approximate)",
+  "pts": [
+   [
+    30.3973089,
+    78.0748773
+   ],
+   [
+    30.3972718,
+    78.0749309
+   ]
+  ]
+ },
+ {
+  "type": "gate",
+  "name": "Boys Hostel Gate",
+  "sub": "Guard hut + gate; opens onto Bhabha and Annapurna (BH 0:55)",
+  "pts": [
+   [
+    30.3980492,
+    78.0741155
+   ]
+  ],
+  "style": "bars"
+ },
+ {
+  "type": "gate",
+  "name": "Sarabhai Gate",
+  "sub": "Red-roofed guard huts at the Sarabhai gate (NR 40:46)",
+  "pts": [
+   [
+    30.3972302,
+    78.0751079
+   ]
+  ],
+  "style": "bars"
+ },
+ {
+  "type": "gate",
+  "name": "Girls Hostel Gate",
+  "sub": "Single gate + guard room for Kasturba & Sarojini (KG 1:52, NR 14:46; approximate)",
+  "pts": [
+   [
+    30.3999462,
+    78.076449
+   ]
+  ],
+  "style": "bars"
+ },
+ {
+  "type": "gate",
+  "name": "DIT Main Gate",
+  "sub": "Main entrance where the campus access road meets the Dehradun\u2013Mussoorie Road (position from the road network)",
+  "pts": [
+   [
+    30.39922,
+    78.07745
+   ]
+  ],
+  "style": "bars",
+  "access_road": 621301957,
+  "to_index": 0,
+  "stop_short": 26
+ },
+ {
+  "type": "amphitheatre",
+  "name": "Hostel Amphitheatre",
+  "sub": "Semicircular stone steps around a court, inside the stepped-balcony hostels (BH 4:07; approximate)",
+  "pts": [
+   [
+    30.3972441,
+    78.0747378
+   ]
+  ]
+ },
+ {
+  "type": "portico",
+  "name": "DIT University Entrance Portico",
+  "sub": "Brick piers with a flat cream canopy at the Chanakya entrance, beside the flagpole (NR 4:18\u20134:22, 24:45)",
+  "pts": [
+   [
+    30.3987525,
+    78.0755693
+   ],
+   [
+    30.398808,
+    78.0756658
+   ]
+  ]
+ },
+ {
+  "type": "cafe",
+  "name": "Caf\u00e9 Frisco",
+  "sub": "Open-air cafe beside West Block, in front of Visvesvaraya: two gazebos, signboard and picnic benches (NR 0:40\u20130:52)",
+  "pts": [
+   [
+    30.3984749,
+    78.0742711
+   ]
+  ]
+ }
+]

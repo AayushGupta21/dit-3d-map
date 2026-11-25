@@ -1,0 +1,7 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "dit-map", "runtimeExecutable": "python3", "runtimeArgs": ["tools/serve.py", "5173"], "port": 5173 },
+    { "name": "dit-dist", "runtimeExecutable": "python3", "runtimeArgs": ["-m", "http.server", "5180", "--directory", "dist"], "port": 5180 }
+  ]
+}

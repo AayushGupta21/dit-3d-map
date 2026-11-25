@@ -1,0 +1,23 @@
+[
+ {
+  "name": "Infirmary",
+  "cat": "admin",
+  "sub": "Campus health centre, beside Charak (position approximate)",
+  "lat": 30.398827,
+  "lng": 78.076583
+ },
+ {
+  "name": "Automobile Workshop",
+  "cat": "academic",
+  "sub": "Automation / automobile workshop building with a roller shutter, next to Caf\u00e9 Frisco",
+  "lat": 30.39692,
+  "lng": 78.074877
+ },
+ {
+  "name": "Gym & Tuck Shop",
+  "cat": "food",
+  "sub": "Hostel gym and tuck shop (BH 4:20, approximate)",
+  "lat": 30.397346,
+  "lng": 78.074877
+ }
+]
